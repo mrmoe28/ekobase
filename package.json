@@ -1,0 +1,28 @@
+{
+  "name": "supabase-clone",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "pnpm --parallel --filter @local/gateway --filter @local/functions-runner --filter @local/realtime --filter @local/storage --filter @local/admin dev",
+    "dev:gateway": "pnpm --filter @local/gateway dev",
+    "dev:functions": "pnpm --filter @local/functions-runner dev",
+    "dev:realtime": "pnpm --filter @local/realtime dev",
+    "dev:storage": "pnpm --filter @local/storage dev",
+    "dev:admin": "pnpm --filter @local/admin dev",
+    "dev:admin-ui": "pnpm --filter @local/admin-ui dev",
+    "infra:up": "docker compose -f infra/docker-compose.yml up -d",
+    "infra:down": "docker compose -f infra/docker-compose.yml down",
+    "db:migrate": "bash scripts/db-migrate.sh",
+    "test": "vitest run",
+    "test:e2e": "vitest run tests/e2e",
+    "test:e2e:local": "bash scripts/test-e2e-local.sh"
+  },
+  "devDependencies": {
+    "@supabase/supabase-js": "^2.47.10",
+    "@types/node": "^22.10.2",
+    "pg": "^8.13.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}
