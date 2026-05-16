@@ -294,7 +294,7 @@ export default function UsersPage() {
 
       {/* New User Modal */}
       {showModal && (
-        <Modal title="Create New User" onClose={closeModal}>
+        <Modal isOpen={showModal} title="Create New User" onClose={closeModal}>
           <form onSubmit={handleCreateUser} className="space-y-4">
             <div>
               <label htmlFor="new-email" className="label">

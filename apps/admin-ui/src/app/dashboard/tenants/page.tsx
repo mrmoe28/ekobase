@@ -283,7 +283,7 @@ export default function TenantsPage() {
 
       {/* New Tenant Modal */}
       {showModal && (
-        <Modal title="Create New Tenant" onClose={closeModal}>
+        <Modal isOpen={showModal} title="Create New Tenant" onClose={closeModal}>
           <form onSubmit={handleCreateTenant} className="space-y-4">
             <div>
               <label htmlFor="tenant-name" className="label">
