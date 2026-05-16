@@ -108,6 +108,61 @@ export const addProjectMember = (projectId: string, user_id: string) =>
 export const removeProjectMember = (projectId: string, userId: string) =>
   request<object>(`/projects/${projectId}/members/${userId}`, { method: 'DELETE' })
 
+// SQL + Schema
+export type QueryField = { name: string; dataTypeID: number }
+
+export type QueryResult = {
+  rows: Record<string, unknown>[]
+  fields: QueryField[]
+  rowCount: number | null
+  command: string
+}
+
+export type ColumnInfo = {
+  schema: string
+  table: string
+  column: string
+  type: string
+  nullable: boolean
+  default: string | null
+  position: number
+  is_pk: boolean
+}
+
+export type SchemaMap = Record<string, Record<string, ColumnInfo[]>>
+
+export type TableData = {
+  rows: Record<string, unknown>[]
+  total: number
+  fields: QueryField[]
+}
+
+export const executeSql = (query: string) =>
+  request<QueryResult>('/sql', { method: 'POST', body: JSON.stringify({ query }) })
+
+export const getSchemaTables = () =>
+  request<SchemaMap>('/schema/tables')
+
+export const getTableRows = (schema: string, table: string, limit = 50, offset = 0) =>
+  request<TableData>(`/schema/${schema}/${table}/rows?limit=${limit}&offset=${offset}`)
+
+export const deleteTableRow = (schema: string, table: string, pk: Record<string, unknown>) =>
+  request<object>(`/schema/${schema}/${table}/rows`, {
+    method: 'DELETE',
+    body: JSON.stringify({ pk }),
+  })
+
+export const updateTableRow = (
+  schema: string,
+  table: string,
+  pk: Record<string, unknown>,
+  data: Record<string, unknown>,
+) =>
+  request<Record<string, unknown>>(`/schema/${schema}/${table}/rows`, {
+    method: 'PATCH',
+    body: JSON.stringify({ pk, data }),
+  })
+
 // Tenants
 export const listTenants = () => request<Tenant[]>('/tenants')
 export const createTenant = (name: string, ownerId: string) =>

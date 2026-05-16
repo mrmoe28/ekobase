@@ -8,6 +8,8 @@ import {
   Users,
   Building2,
   FolderKanban,
+  Terminal,
+  Table2,
   Sun,
   Moon,
   LogOut,
@@ -22,6 +24,8 @@ const navItems = [
   { href: '/dashboard/projects', label: 'Projects', icon: FolderKanban },
   { href: '/dashboard/users', label: 'Users', icon: Users },
   { href: '/dashboard/tenants', label: 'Tenants', icon: Building2 },
+  { href: '/dashboard/sql', label: 'SQL Editor', icon: Terminal },
+  { href: '/dashboard/tables', label: 'Table Editor', icon: Table2 },
 ]
 
 interface SidebarProps {

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import Fastify from "fastify";
-import { Client } from "pg";
+import pg from "pg";
 import { jwtVerify } from "jose";
 import { DEFAULT_JWT_SECRET } from "@local/jwt";
 
@@ -8,7 +8,7 @@ const port = Number(process.env.ADMIN_PORT ?? 54325);
 const databaseUrl =
   process.env.DATABASE_URL ?? "postgres://postgres:postgres@localhost:5432/app";
 
-const pgClient = new Client({ connectionString: databaseUrl });
+const pgClient = new pg.Pool({ connectionString: databaseUrl });
 
 type AuthClaims = {
   sub: string;
@@ -400,6 +400,173 @@ app.delete<{ Params: { projectId: string; userId: string } }>(
   },
 );
 
+// ─── SQL execution ────────────────────────────────────────────────────────────
+
+app.post<{ Body: { query?: string } }>(
+  "/sql",
+  async (request, reply) => {
+    const { query } = request.body;
+    if (!query?.trim()) {
+      return reply.code(400).send({ error: "Query is required" });
+    }
+    try {
+      const result = await pgClient.query(query);
+      return reply.send({
+        rows: result.rows,
+        fields: result.fields?.map(f => ({ name: f.name, dataTypeID: f.dataTypeID })) ?? [],
+        rowCount: result.rowCount,
+        command: result.command,
+      });
+    } catch (err: unknown) {
+      return reply.code(400).send({ error: (err as Error).message });
+    }
+  }
+);
+
+// ─── Schema browser ───────────────────────────────────────────────────────────
+
+type ColumnInfo = {
+  schema: string;
+  table: string;
+  column: string;
+  type: string;
+  nullable: boolean;
+  default: string | null;
+  position: number;
+  is_pk: boolean;
+};
+
+app.get("/schema/tables", async (_request, reply) => {
+  const result = await pgClient.query<ColumnInfo>(`
+    SELECT
+      c.table_schema AS schema,
+      c.table_name AS "table",
+      c.column_name AS "column",
+      c.data_type AS type,
+      (c.is_nullable = 'YES') AS nullable,
+      c.column_default AS "default",
+      c.ordinal_position AS position,
+      EXISTS (
+        SELECT 1
+        FROM information_schema.table_constraints tc
+        JOIN information_schema.key_column_usage kcu
+          ON tc.constraint_name = kcu.constraint_name
+          AND tc.table_schema = kcu.table_schema
+          AND tc.table_name = kcu.table_name
+        WHERE kcu.table_schema = c.table_schema
+          AND kcu.table_name = c.table_name
+          AND kcu.column_name = c.column_name
+          AND tc.constraint_type = 'PRIMARY KEY'
+      ) AS is_pk
+    FROM information_schema.columns c
+    WHERE c.table_schema NOT IN ('information_schema', 'pg_catalog', 'pg_toast')
+    ORDER BY c.table_schema, c.table_name, c.ordinal_position
+  `);
+
+  const schemas: Record<string, Record<string, ColumnInfo[]>> = {};
+  for (const row of result.rows) {
+    schemas[row.schema] ??= {};
+    schemas[row.schema][row.table] ??= [];
+    schemas[row.schema][row.table].push(row);
+  }
+  return reply.send(schemas);
+});
+
+function isValidIdentifier(s: string): boolean {
+  return /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(s);
+}
+
+app.get<{
+  Params: { schema: string; table: string };
+  Querystring: { limit?: string; offset?: string };
+}>(
+  "/schema/:schema/:table/rows",
+  async (request, reply) => {
+    const { schema, table } = request.params;
+    const limit = Math.min(parseInt(request.query.limit ?? "50"), 500);
+    const offset = Math.max(parseInt(request.query.offset ?? "0"), 0);
+
+    if (!isValidIdentifier(schema) || !isValidIdentifier(table)) {
+      return reply.code(400).send({ error: "Invalid schema or table name" });
+    }
+    try {
+      const [rows, count] = await Promise.all([
+        pgClient.query(`SELECT * FROM "${schema}"."${table}" LIMIT $1 OFFSET $2`, [limit, offset]),
+        pgClient.query<{ total: number }>(`SELECT count(*)::int AS total FROM "${schema}"."${table}"`),
+      ]);
+      return reply.send({
+        rows: rows.rows,
+        total: count.rows[0].total,
+        fields: rows.fields?.map(f => ({ name: f.name, dataTypeID: f.dataTypeID })) ?? [],
+      });
+    } catch (err: unknown) {
+      return reply.code(400).send({ error: (err as Error).message });
+    }
+  }
+);
+
+app.delete<{
+  Params: { schema: string; table: string };
+  Body: { pk: Record<string, unknown> };
+}>(
+  "/schema/:schema/:table/rows",
+  async (request, reply) => {
+    const { schema, table } = request.params;
+    const { pk } = request.body ?? {};
+    if (!isValidIdentifier(schema) || !isValidIdentifier(table)) {
+      return reply.code(400).send({ error: "Invalid schema or table name" });
+    }
+    if (!pk || Object.keys(pk).length === 0) {
+      return reply.code(400).send({ error: "pk is required" });
+    }
+    const entries = Object.entries(pk);
+    const where = entries.map(([col], i) => `"${col}" = $${i + 1}`).join(" AND ");
+    const values = entries.map(([, v]) => v);
+    try {
+      const result = await pgClient.query(
+        `DELETE FROM "${schema}"."${table}" WHERE ${where} RETURNING *`,
+        values
+      );
+      if (result.rows.length === 0) return reply.code(404).send({ error: "Row not found" });
+      return reply.code(204).send();
+    } catch (err: unknown) {
+      return reply.code(400).send({ error: (err as Error).message });
+    }
+  }
+);
+
+app.patch<{
+  Params: { schema: string; table: string };
+  Body: { pk: Record<string, unknown>; data: Record<string, unknown> };
+}>(
+  "/schema/:schema/:table/rows",
+  async (request, reply) => {
+    const { schema, table } = request.params;
+    const { pk, data } = request.body ?? {};
+    if (!isValidIdentifier(schema) || !isValidIdentifier(table)) {
+      return reply.code(400).send({ error: "Invalid schema or table name" });
+    }
+    if (!pk || !data || Object.keys(pk).length === 0 || Object.keys(data).length === 0) {
+      return reply.code(400).send({ error: "pk and data are required" });
+    }
+    const dataEntries = Object.entries(data);
+    const pkEntries = Object.entries(pk);
+    const set = dataEntries.map(([col], i) => `"${col}" = $${i + 1}`).join(", ");
+    const where = pkEntries.map(([col], i) => `"${col}" = $${dataEntries.length + i + 1}`).join(" AND ");
+    const values = [...dataEntries.map(([, v]) => v), ...pkEntries.map(([, v]) => v)];
+    try {
+      const result = await pgClient.query(
+        `UPDATE "${schema}"."${table}" SET ${set} WHERE ${where} RETURNING *`,
+        values
+      );
+      if (result.rows.length === 0) return reply.code(404).send({ error: "Row not found" });
+      return reply.send(result.rows[0]);
+    } catch (err: unknown) {
+      return reply.code(400).send({ error: (err as Error).message });
+    }
+  }
+);
+
 app.get("/stats", async (request, reply) => {
   const userCount = await pgClient.query("select count(*) as count from auth.users");
   const bucketCount = await pgClient.query("select count(*) as count from storage.buckets");
@@ -448,8 +615,7 @@ async function signProjectJwt(options: {
 }
 
 async function main() {
-  await pgClient.connect();
-  console.log(`PostgreSQL connected for admin`);
+  console.log(`PostgreSQL pool ready for admin`);
 
   await pgClient.query(`create schema if not exists admin`);
   await pgClient.query(`
