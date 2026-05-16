@@ -1,0 +1,123 @@
+services:
+
+  # ─── One-shot DB initializer ────────────────────────────────────────────────
+  db-init:
+    image: postgres:16-alpine
+    command: >
+      sh -c 'until pg_isready -h "$PGHOST" -p "$PGPORT" -U "$PGUSER"; do sleep 1; done
+      && psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f /init.sql
+      && echo "DB init complete"'
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      PGHOST: ${PGHOST}
+      PGPORT: ${PGPORT:-5432}
+      PGUSER: ${PGUSER:-postgres}
+    volumes:
+      - ./infra/postgres/init-prod.sql:/init.sql:ro
+    restart: "no"
+
+  # ─── PostgREST ──────────────────────────────────────────────────────────────
+  postgrest:
+    image: postgrest/postgrest:v12.2.8
+    environment:
+      PGRST_DB_URI: ${POSTGREST_DB_URI:-${DATABASE_URL}}
+      PGRST_DB_SCHEMAS: public
+      PGRST_DB_ANON_ROLE: anon
+      PGRST_JWT_SECRET: ${JWT_SECRET:-local-dev-jwt-secret-change-me-at-least-32-chars}
+    restart: unless-stopped
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+
+  # ─── Gateway ────────────────────────────────────────────────────────────────
+  gateway:
+    build:
+      context: .
+      target: gateway
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      JWT_SECRET: ${JWT_SECRET:-local-dev-jwt-secret-change-me-at-least-32-chars}
+      GATEWAY_PORT: "54321"
+      POSTGREST_URL: http://postgrest:3000
+      FUNCTIONS_URL: http://functions-runner:54322
+      REALTIME_URL: http://realtime:54323
+      STORAGE_URL: http://storage:54324
+      ADMIN_URL: http://admin-service:54325
+    restart: unless-stopped
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+
+  # ─── Admin service ───────────────────────────────────────────────────────────
+  admin-service:
+    build:
+      context: .
+      target: admin-service
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      JWT_SECRET: ${JWT_SECRET:-local-dev-jwt-secret-change-me-at-least-32-chars}
+      ADMIN_PORT: "54325"
+    restart: unless-stopped
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+
+  # ─── Functions runner ────────────────────────────────────────────────────────
+  functions-runner:
+    build:
+      context: .
+      target: functions-runner
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      JWT_SECRET: ${JWT_SECRET:-local-dev-jwt-secret-change-me-at-least-32-chars}
+      FUNCTIONS_PORT: "54322"
+      FUNCTIONS_DIR: /app/examples/functions
+    restart: unless-stopped
+
+  # ─── Realtime ────────────────────────────────────────────────────────────────
+  realtime:
+    build:
+      context: .
+      target: realtime
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      JWT_SECRET: ${JWT_SECRET:-local-dev-jwt-secret-change-me-at-least-32-chars}
+      REALTIME_PORT: "54323"
+    restart: unless-stopped
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+
+  # ─── Storage ─────────────────────────────────────────────────────────────────
+  storage:
+    build:
+      context: .
+      target: storage
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      JWT_SECRET: ${JWT_SECRET:-local-dev-jwt-secret-change-me-at-least-32-chars}
+      STORAGE_PORT: "54324"
+      STORAGE_DIR: /data/storage
+    volumes:
+      - storage-data:/data/storage
+    restart: unless-stopped
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+
+  # ─── Admin UI ─────────────────────────────────────────────────────────────────
+  admin-ui:
+    build:
+      context: .
+      target: admin-ui
+    environment:
+      GATEWAY_URL: ${GATEWAY_URL:-http://gateway:54321}
+      PORT: "3000"
+    ports:
+      - "${ADMIN_UI_PORT:-3000}:3000"
+    restart: unless-stopped
+    depends_on:
+      - gateway
+
+volumes:
+  storage-data:

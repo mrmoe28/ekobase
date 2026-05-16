@@ -50,7 +50,7 @@ async function request<T>(
   const res = await fetch(`${BASE_URL}${path}`, {
     ...options,
     headers: {
-      'Content-Type': 'application/json',
+      ...(options.body ? { 'Content-Type': 'application/json' } : {}),
       Authorization: `Bearer ${token ?? ''}`,
       ...(options.headers ?? {}),
     },
@@ -93,10 +93,20 @@ export const impersonateUser = (userId: string) =>
 
 // Projects
 export const listProjects = () => request<Project[]>('/projects')
+export const getProject = (projectId: string) => request<Project>(`/projects/${projectId}`)
 export const createProject = (body: { name: string; description?: string; owner_id?: string; region?: string }) =>
   request<Project>('/projects', { method: 'POST', body: JSON.stringify(body) })
+export const updateProject = (projectId: string, body: { name?: string; description?: string | null; owner_id?: string | null; region?: string }) =>
+  request<Project>(`/projects/${projectId}`, { method: 'PATCH', body: JSON.stringify(body) })
 export const deleteProject = (projectId: string) =>
   request<object>(`/projects/${projectId}`, { method: 'DELETE' })
+export const getProjectKeys = (projectId: string) =>
+  request<{ anon_key: string; service_role_key: string }>(`/projects/${projectId}/keys`)
+export const listProjectMembers = (projectId: string) => request<User[]>(`/projects/${projectId}/members`)
+export const addProjectMember = (projectId: string, user_id: string) =>
+  request<User>(`/projects/${projectId}/members`, { method: 'POST', body: JSON.stringify({ user_id }) })
+export const removeProjectMember = (projectId: string, userId: string) =>
+  request<object>(`/projects/${projectId}/members/${userId}`, { method: 'DELETE' })
 
 // Tenants
 export const listTenants = () => request<Tenant[]>('/tenants')

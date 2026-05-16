@@ -1,7 +1,8 @@
 'use client'
 
 import { useEffect, useState, type FormEvent } from 'react'
-import { Plus, Trash2, Loader2, RefreshCw, FolderKanban } from 'lucide-react'
+import { useRouter } from 'next/navigation'
+import { Plus, Trash2, Loader2, RefreshCw, FolderKanban, ChevronRight } from 'lucide-react'
 import Modal from '@/components/Modal'
 import Toast, { type ToastType } from '@/components/Toast'
 import {
@@ -36,6 +37,7 @@ export default function ProjectsPage() {
   const [showModal, setShowModal] = useState(false)
   const [toast, setToast] = useState<ToastState | null>(null)
   const [deleting, setDeleting] = useState<string | null>(null)
+  const router = useRouter()
 
   // Form state
   const [name, setName] = useState('')
@@ -172,8 +174,12 @@ export default function ProjectsPage() {
                 {projects.map(project => (
                   <tr
                     key={project.id}
-                    className="table-row-hover transition-colors duration-100"
+                    className="table-row-hover transition-colors duration-100 cursor-pointer"
                     style={{ borderBottom: '1px solid var(--border)' }}
+                    onClick={(e) => {
+                      if ((e.target as HTMLElement).closest('button')) return
+                      router.push(`/dashboard/projects/${project.id}`)
+                    }}
                   >
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2.5">
@@ -204,6 +210,8 @@ export default function ProjectsPage() {
                       {formatDate(project.created_at)}
                     </td>
                     <td className="px-4 py-3 text-right">
+                      <div className="flex items-center justify-end gap-1">
+                      <ChevronRight size={15} style={{ color: 'var(--text-muted)' }} />
                       <button
                         onClick={() => handleDelete(project)}
                         disabled={deleting === project.id}
@@ -217,6 +225,7 @@ export default function ProjectsPage() {
                           ? <Loader2 size={15} className="animate-spin" />
                           : <Trash2 size={15} />}
                       </button>
+                      </div>
                     </td>
                   </tr>
                 ))}

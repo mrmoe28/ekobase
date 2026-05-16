@@ -1,7 +1,7 @@
 import { SignJWT } from "jose";
 
 export const DEFAULT_JWT_SECRET =
-  "local-dev-jwt-secret-change-me-at-least-32-chars";
+  process.env.JWT_SECRET ?? "local-dev-jwt-secret-change-me-at-least-32-chars";
 
 export async function signProjectJwt(options: {
   sub: string;

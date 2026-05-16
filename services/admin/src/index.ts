@@ -284,6 +284,122 @@ app.delete<{ Params: { projectId: string } }>(
   },
 );
 
+app.get<{ Params: { projectId: string } }>(
+  "/projects/:projectId",
+  async (request, reply) => {
+    const { projectId } = request.params;
+    const result = await pgClient.query<Project>(
+      `select p.*, u.email as owner_email
+       from admin.projects p
+       left join auth.users u on u.id = p.owner_id
+       where p.id = $1`,
+      [projectId],
+    );
+    if (result.rows.length === 0) {
+      return reply.code(404).send({ error: "Project not found" });
+    }
+    return reply.send(result.rows[0]);
+  },
+);
+
+app.patch<{ Params: { projectId: string }; Body: { name?: string; description?: string | null; owner_id?: string | null; region?: string } }>(
+  "/projects/:projectId",
+  async (request, reply) => {
+    const { projectId } = request.params;
+    const { name, description, owner_id, region } = request.body;
+    const result = await pgClient.query<Project>(
+      `update admin.projects set
+         name        = coalesce($1, name),
+         description = case when $2::boolean then $3 else description end,
+         owner_id    = case when $4::boolean then $5::uuid else owner_id end,
+         region      = coalesce($6, region),
+         updated_at  = now()
+       where id = $7
+       returning *`,
+      [
+        name ?? null,
+        description !== undefined, description ?? null,
+        owner_id !== undefined,    owner_id ?? null,
+        region ?? null,
+        projectId,
+      ],
+    );
+    if (result.rows.length === 0) {
+      return reply.code(404).send({ error: "Project not found" });
+    }
+    return reply.send(result.rows[0]);
+  },
+);
+
+app.get<{ Params: { projectId: string } }>(
+  "/projects/:projectId/keys",
+  async (request, reply) => {
+    const { projectId } = request.params;
+    const ttl = 100 * 365 * 24 * 60 * 60;
+    const [anonKey, serviceRoleKey] = await Promise.all([
+      signProjectJwt({ sub: projectId, role: "anon", expiresInSeconds: ttl }),
+      signProjectJwt({ sub: projectId, role: "service_role", expiresInSeconds: ttl }),
+    ]);
+    return reply.send({ anon_key: anonKey, service_role_key: serviceRoleKey });
+  },
+);
+
+app.get<{ Params: { projectId: string } }>(
+  "/projects/:projectId/members",
+  async (request, reply) => {
+    const { projectId } = request.params;
+    const result = await pgClient.query<User>(
+      `select u.id, u.email, u.created_at, u.updated_at
+       from admin.project_members pm
+       join auth.users u on u.id = pm.user_id
+       where pm.project_id = $1
+       order by pm.created_at asc`,
+      [projectId],
+    );
+    return reply.send(result.rows);
+  },
+);
+
+app.post<{ Params: { projectId: string }; Body: { user_id: string } }>(
+  "/projects/:projectId/members",
+  async (request, reply) => {
+    const { projectId } = request.params;
+    const { user_id } = request.body;
+    if (!user_id) return reply.code(400).send({ error: "user_id is required" });
+    try {
+      await pgClient.query(
+        "insert into admin.project_members (project_id, user_id) values ($1, $2)",
+        [projectId, user_id],
+      );
+      const result = await pgClient.query<User>(
+        "select id, email, created_at, updated_at from auth.users where id = $1",
+        [user_id],
+      );
+      return reply.code(201).send(result.rows[0]);
+    } catch (error) {
+      if ((error as { code?: string }).code === "23505") {
+        return reply.code(409).send({ error: "User is already a member" });
+      }
+      return reply.code(500).send({ error: "Failed to add member" });
+    }
+  },
+);
+
+app.delete<{ Params: { projectId: string; userId: string } }>(
+  "/projects/:projectId/members/:userId",
+  async (request, reply) => {
+    const { projectId, userId } = request.params;
+    const result = await pgClient.query(
+      "delete from admin.project_members where project_id = $1 and user_id = $2 returning user_id",
+      [projectId, userId],
+    );
+    if (result.rows.length === 0) {
+      return reply.code(404).send({ error: "Member not found" });
+    }
+    return reply.code(204).send();
+  },
+);
+
 app.get("/stats", async (request, reply) => {
   const userCount = await pgClient.query("select count(*) as count from auth.users");
   const bucketCount = await pgClient.query("select count(*) as count from storage.buckets");
@@ -335,6 +451,7 @@ async function main() {
   await pgClient.connect();
   console.log(`PostgreSQL connected for admin`);
 
+  await pgClient.query(`create schema if not exists admin`);
   await pgClient.query(`
     create table if not exists admin.projects (
       id uuid primary key default gen_random_uuid(),
@@ -344,6 +461,14 @@ async function main() {
       region text not null default 'us-east-1',
       created_at timestamptz not null default now(),
       updated_at timestamptz not null default now()
+    )
+  `);
+  await pgClient.query(`
+    create table if not exists admin.project_members (
+      project_id uuid not null references admin.projects(id) on delete cascade,
+      user_id uuid not null references auth.users(id) on delete cascade,
+      created_at timestamptz not null default now(),
+      primary key (project_id, user_id)
     )
   `);
 
