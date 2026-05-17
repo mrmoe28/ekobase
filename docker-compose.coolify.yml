@@ -75,6 +75,16 @@ services:
     networks:
       - coolify
     restart: unless-stopped
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.supabase-clone-gateway-http.rule=Host(`supabase.ekodevops.com`)"
+      - "traefik.http.routers.supabase-clone-gateway-http.entryPoints=http"
+      - "traefik.http.routers.supabase-clone-gateway-http.service=supabase-clone-gateway"
+      - "traefik.http.routers.supabase-clone-gateway-https.rule=Host(`supabase.ekodevops.com`)"
+      - "traefik.http.routers.supabase-clone-gateway-https.entryPoints=https"
+      - "traefik.http.routers.supabase-clone-gateway-https.tls=true"
+      - "traefik.http.routers.supabase-clone-gateway-https.service=supabase-clone-gateway"
+      - "traefik.http.services.supabase-clone-gateway.loadbalancer.server.port=54321"
 
   # ─── Functions runner ────────────────────────────────────────────────────────
   functions-runner:
@@ -134,3 +144,13 @@ services:
     restart: unless-stopped
     depends_on:
       - gateway
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.supabase-clone-adminui-http.rule=Host(`admin.supabase.ekodevops.com`)"
+      - "traefik.http.routers.supabase-clone-adminui-http.entryPoints=http"
+      - "traefik.http.routers.supabase-clone-adminui-http.service=supabase-clone-adminui"
+      - "traefik.http.routers.supabase-clone-adminui-https.rule=Host(`admin.supabase.ekodevops.com`)"
+      - "traefik.http.routers.supabase-clone-adminui-https.entryPoints=https"
+      - "traefik.http.routers.supabase-clone-adminui-https.tls=true"
+      - "traefik.http.routers.supabase-clone-adminui-https.service=supabase-clone-adminui"
+      - "traefik.http.services.supabase-clone-adminui.loadbalancer.server.port=3000"
