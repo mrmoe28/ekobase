@@ -614,10 +614,108 @@ async function signProjectJwt(options: {
     .sign(secret);
 }
 
-async function main() {
-  console.log(`PostgreSQL pool ready for admin`);
+async function initSchema() {
+  // Roles (ignore if already exist)
+  for (const sql of [
+    `do $$ begin create role anon nologin; exception when duplicate_object then null; end $$`,
+    `do $$ begin create role authenticated nologin; exception when duplicate_object then null; end $$`,
+    `do $$ begin create role service_role nologin bypassrls; exception when duplicate_object then null; end $$`,
+    `do $$ begin create role authenticator noinherit login password 'authenticator'; exception when duplicate_object then null; end $$`,
+  ]) {
+    try { await pgClient.query(sql); } catch { /* ignore */ }
+  }
+  try { await pgClient.query(`grant anon, authenticated, service_role to authenticator`); } catch { /* ignore */ }
 
+  // Schemas
+  await pgClient.query(`create schema if not exists auth`);
   await pgClient.query(`create schema if not exists admin`);
+  await pgClient.query(`create schema if not exists storage`);
+
+  // auth tables
+  await pgClient.query(`
+    create table if not exists auth.users (
+      id uuid primary key,
+      email text not null unique,
+      encrypted_password text not null,
+      created_at timestamptz not null default now(),
+      updated_at timestamptz not null default now()
+    )
+  `);
+  await pgClient.query(`
+    create table if not exists auth.refresh_tokens (
+      token text primary key,
+      user_id uuid not null references auth.users(id) on delete cascade,
+      created_at timestamptz not null default now()
+    )
+  `);
+  await pgClient.query(`
+    create table if not exists auth.password_reset_tokens (
+      token text primary key,
+      user_id uuid not null references auth.users(id) on delete cascade,
+      expires_at timestamptz not null default now() + interval '1 hour'
+    )
+  `);
+
+  // storage tables
+  await pgClient.query(`
+    create table if not exists storage.buckets (
+      id text primary key,
+      name text not null unique,
+      public boolean not null default false,
+      owner_id uuid references auth.users(id) on delete set null,
+      created_at timestamptz not null default now(),
+      updated_at timestamptz not null default now()
+    )
+  `);
+  await pgClient.query(`
+    create table if not exists storage.files (
+      id uuid primary key default gen_random_uuid(),
+      bucket_id text not null references storage.buckets(id) on delete cascade,
+      name text not null,
+      path text not null,
+      size bigint not null default 0,
+      content_type text,
+      owner_id uuid references auth.users(id) on delete set null,
+      created_at timestamptz not null default now(),
+      updated_at timestamptz not null default now(),
+      unique (bucket_id, name)
+    )
+  `);
+
+  // public tables
+  await pgClient.query(`
+    create table if not exists public.todos (
+      id bigint generated always as identity primary key,
+      user_id uuid not null,
+      title text not null,
+      inserted_at timestamptz not null default now()
+    )
+  `);
+  await pgClient.query(`alter table public.todos enable row level security`);
+  try {
+    await pgClient.query(`
+      create policy "Users can read their todos" on public.todos
+        for select to authenticated
+        using (user_id = ((current_setting('request.jwt.claims', true))::json ->> 'sub')::uuid)
+    `);
+  } catch { /* policy already exists */ }
+  try {
+    await pgClient.query(`
+      create policy "Users can insert their todos" on public.todos
+        for insert to authenticated
+        with check (user_id = ((current_setting('request.jwt.claims', true))::json ->> 'sub')::uuid)
+    `);
+  } catch { /* policy already exists */ }
+
+  // Grants
+  try { await pgClient.query(`grant usage on schema public to anon, authenticated`); } catch { /* ignore */ }
+  try { await pgClient.query(`grant select, insert on public.todos to authenticated`); } catch { /* ignore */ }
+  try { await pgClient.query(`grant usage on schema auth to authenticator`); } catch { /* ignore */ }
+  try { await pgClient.query(`grant all on all tables in schema auth to authenticator`); } catch { /* ignore */ }
+  try { await pgClient.query(`grant usage on schema storage to authenticator`); } catch { /* ignore */ }
+  try { await pgClient.query(`grant all on all tables in schema storage to authenticator`); } catch { /* ignore */ }
+
+  // admin tables
   await pgClient.query(`
     create table if not exists admin.projects (
       id uuid primary key default gen_random_uuid(),
@@ -637,7 +735,12 @@ async function main() {
       primary key (project_id, user_id)
     )
   `);
+}
 
+async function main() {
+  console.log(`Initializing database schema...`);
+  await initSchema();
+  console.log(`Schema ready. Starting admin service on port ${port}`);
   await app.listen({ host: "0.0.0.0", port });
   console.log(`Admin service listening on port ${port}`);
 }

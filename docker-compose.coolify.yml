@@ -4,28 +4,6 @@ networks:
 
 services:
 
-  # ─── One-shot DB initializer ────────────────────────────────────────────────
-  db-init:
-    image: postgres:16-alpine
-    command: >
-      sh -c '
-        until pg_isready -h "$$PGHOST" -p "$$PGPORT" -U "$$PGUSER"; do sleep 2; done;
-        echo "DB ready, running init...";
-        PGPASSWORD="$$PGPASSWORD" psql -h "$$PGHOST" -p "$$PGPORT" -U "$$PGUSER" -d "$$PGDATABASE" -f /init.sql && echo "Init OK" || echo "Init had errors (schema may already exist)";
-        echo "DB init complete"
-      '
-    environment:
-      PGHOST: ${PGHOST}
-      PGPORT: ${PGPORT:-5432}
-      PGUSER: ${PGUSER:-postgres}
-      PGPASSWORD: ${PGPASSWORD}
-      PGDATABASE: app
-    volumes:
-      - ./infra/postgres/init-prod.sql:/init.sql:ro
-    networks:
-      - coolify
-    restart: "no"
-
   # ─── PostgREST ──────────────────────────────────────────────────────────────
   postgrest:
     image: postgrest/postgrest:v12.2.8
@@ -37,9 +15,19 @@ services:
     networks:
       - coolify
     restart: unless-stopped
-    depends_on:
-      db-init:
-        condition: service_completed_successfully
+
+  # ─── Admin service (also runs DB schema init on startup) ─────────────────────
+  admin-service:
+    build:
+      context: .
+      target: admin-service
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      JWT_SECRET: ${JWT_SECRET:-local-dev-jwt-secret-change-me-at-least-32-chars}
+      ADMIN_PORT: "54325"
+    networks:
+      - coolify
+    restart: unless-stopped
 
   # ─── Gateway ────────────────────────────────────────────────────────────────
   gateway:
@@ -58,25 +46,6 @@ services:
     networks:
       - coolify
     restart: unless-stopped
-    depends_on:
-      db-init:
-        condition: service_completed_successfully
-
-  # ─── Admin service ───────────────────────────────────────────────────────────
-  admin-service:
-    build:
-      context: .
-      target: admin-service
-    environment:
-      DATABASE_URL: ${DATABASE_URL}
-      JWT_SECRET: ${JWT_SECRET:-local-dev-jwt-secret-change-me-at-least-32-chars}
-      ADMIN_PORT: "54325"
-    networks:
-      - coolify
-    restart: unless-stopped
-    depends_on:
-      db-init:
-        condition: service_completed_successfully
 
   # ─── Functions runner ────────────────────────────────────────────────────────
   functions-runner:
@@ -104,9 +73,6 @@ services:
     networks:
       - coolify
     restart: unless-stopped
-    depends_on:
-      db-init:
-        condition: service_completed_successfully
 
   # ─── Storage ─────────────────────────────────────────────────────────────────
   storage:
@@ -123,9 +89,6 @@ services:
     networks:
       - coolify
     restart: unless-stopped
-    depends_on:
-      db-init:
-        condition: service_completed_successfully
 
   # ─── Admin UI ─────────────────────────────────────────────────────────────────
   admin-ui:
