@@ -1,5 +1,6 @@
 import { Server } from "socket.io";
-import { Pool, PoolClient } from "pg";
+import { Pool } from "pg";
+import type { PoolClient } from "pg";
 import { createServer } from "node:http";
 import { jwtVerify } from "jose";
 import { DEFAULT_JWT_SECRET } from "@local/jwt";
