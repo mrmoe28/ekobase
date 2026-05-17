@@ -7,6 +7,7 @@ export async function signProjectJwt(options: {
   sub: string;
   role?: "anon" | "authenticated" | "service_role";
   email?: string;
+  project_id?: string;
   secret?: string;
   expiresInSeconds?: number;
 }) {
@@ -16,6 +17,7 @@ export async function signProjectJwt(options: {
   return new SignJWT({
     role: options.role ?? "authenticated",
     email: options.email,
+    ...(options.project_id ? { project_id: options.project_id } : {}),
   })
     .setProtectedHeader({ alg: "HS256", typ: "JWT" })
     .setSubject(options.sub)

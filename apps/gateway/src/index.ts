@@ -33,6 +33,7 @@ type AuthUser = {
   email: string;
   encrypted_password: string;
   created_at: Date;
+  project_id: string | null;
 };
 
 type AuthBody = {
@@ -79,17 +80,18 @@ async function verifyPassword(password: string, storedHash: string) {
   return storedKey.length === derivedKey.length && timingSafeEqual(storedKey, derivedKey);
 }
 
-async function createSession(user: Pick<AuthUser, "id" | "email" | "created_at">) {
+async function createSession(user: Pick<AuthUser, "id" | "email" | "created_at" | "project_id">) {
   const refreshToken = randomBytes(32).toString("base64url");
   const accessToken = await signProjectJwt({
     sub: user.id,
     role: "authenticated",
     email: user.email,
+    project_id: user.project_id ?? undefined,
   });
 
   await pool.query(
-    "insert into auth.refresh_tokens (token, user_id) values ($1, $2)",
-    [refreshToken, user.id],
+    "insert into auth.refresh_tokens (token, user_id, project_id) values ($1, $2, $3)",
+    [refreshToken, user.id, user.project_id ?? null],
   );
 
   return {
@@ -100,6 +102,19 @@ async function createSession(user: Pick<AuthUser, "id" | "email" | "created_at">
     refresh_token: refreshToken,
     user: toAuthUser(user),
   };
+}
+
+async function getProjectIdFromRequest(request: { headers: Record<string, string | string[] | undefined>; query: unknown }): Promise<string | null> {
+  const apikey = (request.headers["apikey"] as string | undefined) ||
+                 ((request.query as Record<string, string>)?.apikey);
+  if (!apikey) return null;
+  try {
+    const { payload } = await jwtVerify(apikey, new TextEncoder().encode(DEFAULT_JWT_SECRET));
+    if ((payload.role === "anon" || payload.role === "service_role") && typeof payload.sub === "string") {
+      return payload.sub;
+    }
+  } catch { /* invalid key */ }
+  return null;
 }
 
 function getCredentials(body: AuthBody | undefined) {
@@ -178,6 +193,7 @@ await app.register(async (auth) => {
   );
 
 auth.post("/signup", async (request, reply) => {
+  const projectId = await getProjectIdFromRequest(request as never);
   const credentials = getCredentials(request.body as AuthBody | undefined);
 
   if (!credentials) {
@@ -189,8 +205,8 @@ auth.post("/signup", async (request, reply) => {
 
   try {
     const result = await pool.query<AuthUser>(
-      "insert into auth.users (id, email, encrypted_password) values ($1, $2, $3) returning id, email, encrypted_password, created_at",
-      [id, credentials.email, encryptedPassword],
+      "insert into auth.users (id, email, encrypted_password, project_id) values ($1, $2, $3, $4) returning id, email, encrypted_password, created_at, project_id",
+      [id, credentials.email, encryptedPassword, projectId],
     );
 
     return reply.send(await createSession(result.rows[0]));
@@ -206,6 +222,7 @@ auth.post("/signup", async (request, reply) => {
 
 auth.post("/token", async (request, reply) => {
   const grantType = (request.query as { grant_type?: string }).grant_type;
+  const projectId = await getProjectIdFromRequest(request as never);
 
   if (grantType === "refresh_token") {
     const body = request.body as AuthBody | undefined;
@@ -215,7 +232,7 @@ auth.post("/token", async (request, reply) => {
     }
 
     const result = await pool.query<AuthUser>(
-      `select u.id, u.email, u.encrypted_password, u.created_at
+      `select u.id, u.email, u.encrypted_password, u.created_at, u.project_id
        from auth.refresh_tokens rt
        join auth.users u on u.id = rt.user_id
        where rt.token = $1`,
@@ -245,8 +262,9 @@ auth.post("/token", async (request, reply) => {
   }
 
   const result = await pool.query<AuthUser>(
-    "select id, email, encrypted_password, created_at from auth.users where email = $1",
-    [credentials.email],
+    `select id, email, encrypted_password, created_at, project_id from auth.users
+     where email = $1 and (project_id = $2 or project_id is null or $2 is null)`,
+    [credentials.email, projectId],
   );
   const user = result.rows[0];
 
@@ -267,7 +285,7 @@ auth.get("/user", async (request, reply) => {
   }
 
   const result = await pool.query<AuthUser>(
-    "select id, email, encrypted_password, created_at from auth.users where id = $1",
+    "select id, email, encrypted_password, created_at, project_id from auth.users where id = $1",
     [userId],
   );
   const user = result.rows[0];

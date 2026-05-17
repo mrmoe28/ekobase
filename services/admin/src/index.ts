@@ -38,6 +38,8 @@ type Project = {
   description: string | null;
   owner_id: string | null;
   region: string;
+  supabase_ref: string | null;
+  schema_name: string | null;
   created_at: Date;
   updated_at: Date;
 };
@@ -248,21 +250,34 @@ app.get("/projects", async (request, reply) => {
   return reply.send(result.rows);
 });
 
-app.post<{ Body: { name: string; description?: string; owner_id?: string; region?: string } }>(
+async function provisionProjectSchema(projectId: string): Promise<string> {
+  const schemaName = `proj_${projectId.replace(/-/g, "").slice(0, 16)}`;
+  await pgClient.query(`create schema if not exists "${schemaName}"`);
+  try { await pgClient.query(`grant usage on schema "${schemaName}" to authenticator, anon, authenticated, service_role`); } catch { /* ignore */ }
+  await pgClient.query(
+    `update admin.projects set schema_name = $1 where id = $2`,
+    [schemaName, projectId],
+  );
+  return schemaName;
+}
+
+app.post<{ Body: { name: string; description?: string; owner_id?: string; region?: string; supabase_ref?: string } }>(
   "/projects",
   async (request, reply) => {
-    const { name, description, owner_id, region } = request.body;
+    const { name, description, owner_id, region, supabase_ref } = request.body;
     if (!name?.trim()) {
       return reply.code(400).send({ error: "Project name is required" });
     }
     try {
       const result = await pgClient.query<Project>(
-        `insert into admin.projects (name, description, owner_id, region)
-         values ($1, $2, $3, $4)
+        `insert into admin.projects (name, description, owner_id, region, supabase_ref)
+         values ($1, $2, $3, $4, $5)
          returning *`,
-        [name.trim(), description?.trim() || null, owner_id || null, region || "us-east-1"],
+        [name.trim(), description?.trim() || null, owner_id || null, region || "us-east-1", supabase_ref || null],
       );
-      return reply.code(201).send(result.rows[0]);
+      const project = result.rows[0];
+      await provisionProjectSchema(project.id);
+      return reply.code(201).send({ ...project, schema_name: `proj_${project.id.replace(/-/g, "").slice(0, 16)}` });
     } catch {
       return reply.code(500).send({ error: "Failed to create project" });
     }
@@ -776,6 +791,12 @@ async function initSchema() {
     )
   `);
 
+  // per-project isolation columns
+  await pgClient.query(`alter table auth.users add column if not exists project_id uuid references admin.projects(id) on delete set null`);
+  await pgClient.query(`alter table storage.buckets add column if not exists project_id uuid references admin.projects(id) on delete set null`);
+  await pgClient.query(`alter table storage.files add column if not exists project_id uuid references admin.projects(id) on delete set null`);
+  await pgClient.query(`alter table auth.refresh_tokens add column if not exists project_id uuid references admin.projects(id) on delete set null`);
+
   // admin tables
   await pgClient.query(`
     create table if not exists admin.projects (
@@ -784,10 +805,16 @@ async function initSchema() {
       description text,
       owner_id uuid references auth.users(id) on delete set null,
       region text not null default 'us-east-1',
+      supabase_ref text unique,
+      schema_name text unique,
       created_at timestamptz not null default now(),
       updated_at timestamptz not null default now()
     )
   `);
+  // add new columns to existing projects table if upgrading
+  await pgClient.query(`alter table admin.projects add column if not exists supabase_ref text unique`);
+  await pgClient.query(`alter table admin.projects add column if not exists schema_name text unique`);
+
   await pgClient.query(`
     create table if not exists admin.project_members (
       project_id uuid not null references admin.projects(id) on delete cascade,
