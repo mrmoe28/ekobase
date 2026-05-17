@@ -79,15 +79,13 @@ services:
     restart: unless-stopped
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.supabase-clone-gateway-http.rule=Host(`supabase.ekodevops.com`)"
+      - "traefik.http.routers.supabase-clone-gateway-http.rule=Host(`supabase.ekodevops.com`) && (PathPrefix(`/rest`) || PathPrefix(`/auth`) || PathPrefix(`/storage`) || PathPrefix(`/realtime`) || PathPrefix(`/functions`) || PathPrefix(`/admin`))"
       - "traefik.http.routers.supabase-clone-gateway-http.entryPoints=http"
       - "traefik.http.routers.supabase-clone-gateway-http.service=supabase-clone-gateway"
-      - "traefik.http.routers.supabase-clone-gateway-http.priority=200"
-      - "traefik.http.routers.supabase-clone-gateway-https.rule=Host(`supabase.ekodevops.com`)"
+      - "traefik.http.routers.supabase-clone-gateway-https.rule=Host(`supabase.ekodevops.com`) && (PathPrefix(`/rest`) || PathPrefix(`/auth`) || PathPrefix(`/storage`) || PathPrefix(`/realtime`) || PathPrefix(`/functions`) || PathPrefix(`/admin`))"
       - "traefik.http.routers.supabase-clone-gateway-https.entryPoints=https"
       - "traefik.http.routers.supabase-clone-gateway-https.tls=true"
       - "traefik.http.routers.supabase-clone-gateway-https.service=supabase-clone-gateway"
-      - "traefik.http.routers.supabase-clone-gateway-https.priority=200"
       - "traefik.http.services.supabase-clone-gateway.loadbalancer.server.port=54321"
 
   # ─── Functions runner ────────────────────────────────────────────────────────
