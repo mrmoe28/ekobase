@@ -387,12 +387,4 @@ await app.register(proxy, {
   rewritePrefix: "",
 });
 
-await pool.query(`
-  create table if not exists auth.password_reset_tokens (
-    token text primary key,
-    user_id uuid not null references auth.users(id) on delete cascade,
-    expires_at timestamptz not null default now() + interval '1 hour'
-  )
-`);
-
 await app.listen({ host: "0.0.0.0", port });
