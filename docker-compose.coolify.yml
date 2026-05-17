@@ -32,7 +32,7 @@ services:
     image: postgrest/postgrest:v12.2.8
     environment:
       PGRST_DB_URI: postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/postgres
-      PGRST_DB_SCHEMAS: "public,proj_7fd102a0594b4332,proj_c7d9f52684264b50,proj_8afa025d450d4ec8,proj_b7540fd7fe524476,proj_9c3d71676c294f76,proj_e64c12b315a9471d,proj_d9ad70a04a754f87,proj_1fc59d17e3904f3f,proj_d96a515c605c4650,proj_c04a58d218b14b4b"
+      PGRST_DB_SCHEMAS: "public,proj_fbe4ecd703954909,proj_577e06dea1c54d2b,proj_f38f72738f4c46f0,proj_87a5f6af442e4231,proj_75ce0d135acd4740,proj_56f5a158d1fc4fac,proj_71a7261327154f3c,proj_781596e0441749e5,proj_239184b2523448a9"
       PGRST_DB_ANON_ROLE: postgres
       PGRST_JWT_SECRET: ${JWT_SECRET:-local-dev-jwt-secret-change-me-at-least-32-chars}
     depends_on:
