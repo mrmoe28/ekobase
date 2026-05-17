@@ -72,6 +72,8 @@ services:
       ADMIN_URL: http://admin-service:54325
     depends_on:
       - postgres
+    expose:
+      - "54321"
     networks:
       - coolify
     restart: unless-stopped
@@ -139,8 +141,6 @@ services:
     environment:
       GATEWAY_URL: ${GATEWAY_URL:-http://gateway:54321}
       PORT: "3000"
-    expose:
-      - "3000"
     networks:
       - coolify
     restart: unless-stopped
@@ -151,8 +151,10 @@ services:
       - "traefik.http.routers.supabase-clone-adminui-http.rule=Host(`admin.supabase.ekodevops.com`)"
       - "traefik.http.routers.supabase-clone-adminui-http.entryPoints=http"
       - "traefik.http.routers.supabase-clone-adminui-http.service=supabase-clone-adminui"
+      - "traefik.http.routers.supabase-clone-adminui-http.priority=200"
       - "traefik.http.routers.supabase-clone-adminui-https.rule=Host(`admin.supabase.ekodevops.com`)"
       - "traefik.http.routers.supabase-clone-adminui-https.entryPoints=https"
       - "traefik.http.routers.supabase-clone-adminui-https.tls=true"
       - "traefik.http.routers.supabase-clone-adminui-https.service=supabase-clone-adminui"
+      - "traefik.http.routers.supabase-clone-adminui-https.priority=200"
       - "traefik.http.services.supabase-clone-adminui.loadbalancer.server.port=3000"
