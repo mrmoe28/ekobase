@@ -98,8 +98,8 @@ services:
     environment:
       GATEWAY_URL: ${GATEWAY_URL:-http://gateway:54321}
       PORT: "3000"
-    ports:
-      - "${ADMIN_UI_PORT:-3000}:3000"
+    expose:
+      - "3000"
     networks:
       - coolify
     restart: unless-stopped
