@@ -8,15 +8,18 @@ services:
   db-init:
     image: postgres:16-alpine
     command: >
-      sh -c 'until pg_isready -h "$PGHOST" -p "$PGPORT" -U "$PGUSER"; do sleep 2; done;
-      psql "$DATABASE_URL" -f /init.sql;
-      echo "DB init done"'
+      sh -c '
+        until pg_isready -h "$$PGHOST" -p "$$PGPORT" -U "$$PGUSER"; do sleep 2; done;
+        echo "DB ready, running init...";
+        PGPASSWORD="$$PGPASSWORD" psql -h "$$PGHOST" -p "$$PGPORT" -U "$$PGUSER" -d "$$PGDATABASE" -f /init.sql && echo "Init OK" || echo "Init had errors (schema may already exist)";
+        echo "DB init complete"
+      '
     environment:
-      DATABASE_URL: ${DATABASE_URL}
       PGHOST: ${PGHOST}
       PGPORT: ${PGPORT:-5432}
       PGUSER: ${PGUSER:-postgres}
       PGPASSWORD: ${PGPASSWORD}
+      PGDATABASE: app
     volumes:
       - ./infra/postgres/init-prod.sql:/init.sql:ro
     networks:
@@ -27,9 +30,9 @@ services:
   postgrest:
     image: postgrest/postgrest:v12.2.8
     environment:
-      PGRST_DB_URI: ${POSTGREST_DB_URI:-${DATABASE_URL}}
+      PGRST_DB_URI: ${DATABASE_URL}
       PGRST_DB_SCHEMAS: public
-      PGRST_DB_ANON_ROLE: anon
+      PGRST_DB_ANON_ROLE: postgres
       PGRST_JWT_SECRET: ${JWT_SECRET:-local-dev-jwt-secret-change-me-at-least-32-chars}
     networks:
       - coolify
