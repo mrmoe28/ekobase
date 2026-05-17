@@ -2,16 +2,41 @@ networks:
   coolify:
     external: true
 
+volumes:
+  postgres-data:
+  storage-data:
+
 services:
+
+  # ─── PostgreSQL ──────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: postgres
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - coolify
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   # ─── PostgREST ──────────────────────────────────────────────────────────────
   postgrest:
     image: postgrest/postgrest:v12.2.8
     environment:
-      PGRST_DB_URI: ${DATABASE_URL}
-      PGRST_DB_SCHEMAS: public
+      PGRST_DB_URI: postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/postgres
+      PGRST_DB_SCHEMAS: "public,proj_7fd102a0594b4332,proj_c7d9f52684264b50,proj_8afa025d450d4ec8,proj_b7540fd7fe524476,proj_9c3d71676c294f76,proj_e64c12b315a9471d,proj_d9ad70a04a754f87,proj_1fc59d17e3904f3f,proj_d96a515c605c4650,proj_c04a58d218b14b4b"
       PGRST_DB_ANON_ROLE: postgres
       PGRST_JWT_SECRET: ${JWT_SECRET:-local-dev-jwt-secret-change-me-at-least-32-chars}
+    depends_on:
+      postgres:
+        condition: service_healthy
     networks:
       - coolify
     restart: unless-stopped
@@ -22,9 +47,12 @@ services:
       context: .
       target: admin-service
     environment:
-      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/postgres
       JWT_SECRET: ${JWT_SECRET:-local-dev-jwt-secret-change-me-at-least-32-chars}
       ADMIN_PORT: "54325"
+    depends_on:
+      postgres:
+        condition: service_healthy
     networks:
       - coolify
     restart: unless-stopped
@@ -35,7 +63,7 @@ services:
       context: .
       target: gateway
     environment:
-      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/postgres
       JWT_SECRET: ${JWT_SECRET:-local-dev-jwt-secret-change-me-at-least-32-chars}
       GATEWAY_PORT: "54321"
       POSTGREST_URL: http://postgrest:3000
@@ -43,6 +71,9 @@ services:
       REALTIME_URL: http://realtime:54323
       STORAGE_URL: http://storage:54324
       ADMIN_URL: http://admin-service:54325
+    depends_on:
+      postgres:
+        condition: service_healthy
     networks:
       - coolify
     restart: unless-stopped
@@ -53,7 +84,7 @@ services:
       context: .
       target: functions-runner
     environment:
-      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/postgres
       JWT_SECRET: ${JWT_SECRET:-local-dev-jwt-secret-change-me-at-least-32-chars}
       FUNCTIONS_PORT: "54322"
       FUNCTIONS_DIR: /app/examples/functions
@@ -67,7 +98,7 @@ services:
       context: .
       target: realtime
     environment:
-      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/postgres
       JWT_SECRET: ${JWT_SECRET:-local-dev-jwt-secret-change-me-at-least-32-chars}
       REALTIME_PORT: "54323"
     networks:
@@ -80,7 +111,7 @@ services:
       context: .
       target: storage
     environment:
-      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/postgres
       JWT_SECRET: ${JWT_SECRET:-local-dev-jwt-secret-change-me-at-least-32-chars}
       STORAGE_PORT: "54324"
       STORAGE_DIR: /data/storage
@@ -105,6 +136,3 @@ services:
     restart: unless-stopped
     depends_on:
       - gateway
-
-volumes:
-  storage-data:
