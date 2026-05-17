@@ -72,8 +72,8 @@ services:
       ADMIN_URL: http://admin-service:54325
     depends_on:
       - postgres
-    expose:
-      - "54321"
+    ports:
+      - "54321:54321"
     networks:
       - coolify
     restart: unless-stopped
@@ -139,6 +139,8 @@ services:
     environment:
       GATEWAY_URL: ${GATEWAY_URL:-http://gateway:54321}
       PORT: "3000"
+    ports:
+      - "3000:3000"
     networks:
       - coolify
     restart: unless-stopped
