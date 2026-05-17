@@ -3,7 +3,7 @@ import { createReadStream, createWriteStream, existsSync, mkdirSync, statSync, u
 import { readdir, readFile, stat, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import Fastify from "fastify";
-import { Client } from "pg";
+import { Pool } from "pg";
 import { jwtVerify } from "jose";
 import { DEFAULT_JWT_SECRET } from "@local/jwt";
 
@@ -12,7 +12,7 @@ const databaseUrl =
   process.env.DATABASE_URL ?? "postgres://postgres:postgres@localhost:5432/app";
 const storageDir = process.env.STORAGE_DIR ?? "/tmp/supabase-storage";
 
-const pgClient = new Client({ connectionString: databaseUrl });
+const pgClient = new Pool({ connectionString: databaseUrl });
 
 type AuthClaims = {
   sub: string;
@@ -435,9 +435,6 @@ app.post<{ Params: { bucketName: string } }>(
 );
 
 async function main() {
-  await pgClient.connect();
-  console.log(`PostgreSQL connected for storage`);
-
   ensureStorageDir();
 
   await app.listen({ host: "0.0.0.0", port });

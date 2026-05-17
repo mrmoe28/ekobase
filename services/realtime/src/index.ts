@@ -1,5 +1,5 @@
 import { Server } from "socket.io";
-import { Client } from "pg";
+import { Pool, PoolClient } from "pg";
 import { createServer } from "node:http";
 import { jwtVerify } from "jose";
 import { DEFAULT_JWT_SECRET } from "@local/jwt";
@@ -8,8 +8,16 @@ const port = Number(process.env.REALTIME_PORT ?? 54323);
 const databaseUrl =
   process.env.DATABASE_URL ?? "postgres://postgres:postgres@localhost:5432/app";
 
-const pgClient = new Client({ connectionString: databaseUrl });
+const pgPool = new Pool({ connectionString: databaseUrl });
+let listenClient: PoolClient | null = null;
 const httpServer = createServer();
+
+async function getListenClient(): Promise<PoolClient> {
+  if (!listenClient) {
+    listenClient = await pgPool.connect();
+  }
+  return listenClient;
+}
 
 httpServer.on("request", (req, res) => {
   if (req.url === "/health") {
@@ -152,10 +160,11 @@ async function subscribeToPostgresChanges(
 
   for (const change of config.postgres_changes) {
     const channel = `${change.schema || "public"}:${change.table || "*"}`;
-    
-    await pgClient.query(`LISTEN ${channel}`);
-    
-    pgClient.on("notification", async (notification) => {
+
+    const lc = await getListenClient();
+    await lc.query(`LISTEN ${channel}`);
+
+    lc.on("notification", async (notification) => {
       if (notification.channel !== channel) return;
       
       const socket = io.sockets.sockets.get(socketId);
@@ -178,10 +187,11 @@ async function subscribeToPostgresChanges(
 }
 
 async function unsubscribeFromPostgresChanges(channelName: string) {
+  if (!listenClient) return;
   const parts = channelName.split(":");
   if (parts.length >= 3) {
     const [_, schema, table] = parts;
-    await pgClient.query(`UNLISTEN ${schema}:${table}`);
+    await listenClient.query(`UNLISTEN ${schema}:${table}`);
   }
 }
 
@@ -247,9 +257,6 @@ function broadcastPresenceDiff(
 }
 
 async function main() {
-  await pgClient.connect();
-  console.log(`PostgreSQL connected for realtime changes`);
-
   io.use(async (socket, next) => {
     try {
       const token = socket.handshake.auth.token || socket.handshake.headers.authorization?.replace("Bearer ", "");
