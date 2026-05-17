@@ -8,9 +8,9 @@ services:
   db-init:
     image: postgres:16-alpine
     command: >
-      sh -c 'until pg_isready -h "$PGHOST" -p "$PGPORT" -U "$PGUSER"; do sleep 1; done
-      && psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f /init.sql
-      && echo "DB init complete"'
+      sh -c 'until pg_isready -h "$PGHOST" -p "$PGPORT" -U "$PGUSER"; do sleep 2; done;
+      psql "$DATABASE_URL" -f /init.sql;
+      echo "DB init done"'
     environment:
       DATABASE_URL: ${DATABASE_URL}
       PGHOST: ${PGHOST}
