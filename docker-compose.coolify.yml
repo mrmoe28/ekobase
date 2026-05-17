@@ -1,3 +1,7 @@
+networks:
+  coolify:
+    external: true
+
 services:
 
   # ─── One-shot DB initializer ────────────────────────────────────────────────
@@ -12,8 +16,11 @@ services:
       PGHOST: ${PGHOST}
       PGPORT: ${PGPORT:-5432}
       PGUSER: ${PGUSER:-postgres}
+      PGPASSWORD: ${PGPASSWORD}
     volumes:
       - ./infra/postgres/init-prod.sql:/init.sql:ro
+    networks:
+      - coolify
     restart: "no"
 
   # ─── PostgREST ──────────────────────────────────────────────────────────────
@@ -24,6 +31,8 @@ services:
       PGRST_DB_SCHEMAS: public
       PGRST_DB_ANON_ROLE: anon
       PGRST_JWT_SECRET: ${JWT_SECRET:-local-dev-jwt-secret-change-me-at-least-32-chars}
+    networks:
+      - coolify
     restart: unless-stopped
     depends_on:
       db-init:
@@ -43,6 +52,8 @@ services:
       REALTIME_URL: http://realtime:54323
       STORAGE_URL: http://storage:54324
       ADMIN_URL: http://admin-service:54325
+    networks:
+      - coolify
     restart: unless-stopped
     depends_on:
       db-init:
@@ -57,6 +68,8 @@ services:
       DATABASE_URL: ${DATABASE_URL}
       JWT_SECRET: ${JWT_SECRET:-local-dev-jwt-secret-change-me-at-least-32-chars}
       ADMIN_PORT: "54325"
+    networks:
+      - coolify
     restart: unless-stopped
     depends_on:
       db-init:
@@ -72,6 +85,8 @@ services:
       JWT_SECRET: ${JWT_SECRET:-local-dev-jwt-secret-change-me-at-least-32-chars}
       FUNCTIONS_PORT: "54322"
       FUNCTIONS_DIR: /app/examples/functions
+    networks:
+      - coolify
     restart: unless-stopped
 
   # ─── Realtime ────────────────────────────────────────────────────────────────
@@ -83,6 +98,8 @@ services:
       DATABASE_URL: ${DATABASE_URL}
       JWT_SECRET: ${JWT_SECRET:-local-dev-jwt-secret-change-me-at-least-32-chars}
       REALTIME_PORT: "54323"
+    networks:
+      - coolify
     restart: unless-stopped
     depends_on:
       db-init:
@@ -100,6 +117,8 @@ services:
       STORAGE_DIR: /data/storage
     volumes:
       - storage-data:/data/storage
+    networks:
+      - coolify
     restart: unless-stopped
     depends_on:
       db-init:
@@ -115,6 +134,8 @@ services:
       PORT: "3000"
     ports:
       - "${ADMIN_UI_PORT:-3000}:3000"
+    networks:
+      - coolify
     restart: unless-stopped
     depends_on:
       - gateway
