@@ -11,6 +11,7 @@ services:
   # ─── PostgreSQL ──────────────────────────────────────────────────────────────
   postgres:
     image: postgres:16-alpine
+    command: postgres -c unix_socket_directories=''
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
@@ -21,7 +22,7 @@ services:
       - coolify
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -h localhost"]
       interval: 10s
       timeout: 5s
       retries: 10
