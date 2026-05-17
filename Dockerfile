@@ -27,12 +27,9 @@ EXPOSE 54324
 CMD ["node", "--experimental-strip-types", "services/storage/src/index.ts"]
 
 # ─── admin-ui: build then run ─────────────────────────────────────────────────
-FROM base AS admin-ui-builder
+FROM base AS admin-ui
 RUN pnpm --filter @local/admin-ui build
-
-FROM node:22-alpine AS admin-ui
 WORKDIR /app/apps/admin-ui
-COPY --from=admin-ui-builder /app /app
 EXPOSE 3000
 ENV PORT=3000
-CMD ["../../node_modules/.bin/next", "start", "--port", "3000", "--hostname", "0.0.0.0"]
+CMD ["node", "../../node_modules/.bin/next", "start", "--port", "3000", "--hostname", "0.0.0.0"]

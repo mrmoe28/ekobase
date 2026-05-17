@@ -253,7 +253,11 @@ app.get("/projects", async (request, reply) => {
 async function provisionProjectSchema(projectId: string): Promise<string> {
   const schemaName = `proj_${projectId.replace(/-/g, "").slice(0, 16)}`;
   await pgClient.query(`create schema if not exists "${schemaName}"`);
-  try { await pgClient.query(`grant usage on schema "${schemaName}" to authenticator, anon, authenticated, service_role`); } catch { /* ignore */ }
+  try {
+    await pgClient.query(`grant usage on schema "${schemaName}" to authenticator, anon, authenticated, service_role`);
+    await pgClient.query(`grant select, insert, update, delete on all tables in schema "${schemaName}" to anon, authenticated, service_role`);
+    await pgClient.query(`alter default privileges in schema "${schemaName}" grant select, insert, update, delete on tables to anon, authenticated, service_role`);
+  } catch { /* ignore */ }
   await pgClient.query(
     `update admin.projects set schema_name = $1 where id = $2`,
     [schemaName, projectId],
@@ -791,13 +795,7 @@ async function initSchema() {
     )
   `);
 
-  // per-project isolation columns
-  await pgClient.query(`alter table auth.users add column if not exists project_id uuid references admin.projects(id) on delete set null`);
-  await pgClient.query(`alter table storage.buckets add column if not exists project_id uuid references admin.projects(id) on delete set null`);
-  await pgClient.query(`alter table storage.files add column if not exists project_id uuid references admin.projects(id) on delete set null`);
-  await pgClient.query(`alter table auth.refresh_tokens add column if not exists project_id uuid references admin.projects(id) on delete set null`);
-
-  // admin tables
+  // admin tables — must be created before per-project isolation columns reference them
   await pgClient.query(`
     create table if not exists admin.projects (
       id uuid primary key default gen_random_uuid(),
@@ -814,6 +812,12 @@ async function initSchema() {
   // add new columns to existing projects table if upgrading
   await pgClient.query(`alter table admin.projects add column if not exists supabase_ref text unique`);
   await pgClient.query(`alter table admin.projects add column if not exists schema_name text unique`);
+
+  // per-project isolation columns
+  await pgClient.query(`alter table auth.users add column if not exists project_id uuid references admin.projects(id) on delete set null`);
+  await pgClient.query(`alter table storage.buckets add column if not exists project_id uuid references admin.projects(id) on delete set null`);
+  await pgClient.query(`alter table storage.files add column if not exists project_id uuid references admin.projects(id) on delete set null`);
+  await pgClient.query(`alter table auth.refresh_tokens add column if not exists project_id uuid references admin.projects(id) on delete set null`);
 
   await pgClient.query(`
     create table if not exists admin.project_members (
