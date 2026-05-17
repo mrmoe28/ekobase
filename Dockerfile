@@ -2,8 +2,17 @@
 FROM node:22-alpine AS base
 RUN npm install -g pnpm@9
 WORKDIR /app
-COPY . .
+# Copy manifest files first so pnpm install is cached independently of source
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY apps/admin-ui/package.json apps/admin-ui/
+COPY apps/gateway/package.json apps/gateway/
+COPY services/admin/package.json services/admin/
+COPY services/functions-runner/package.json services/functions-runner/
+COPY services/realtime/package.json services/realtime/
+COPY services/storage/package.json services/storage/
 RUN pnpm install --frozen-lockfile
+# Now copy source (changes here don't bust the install cache)
+COPY . .
 
 # ─── backend services (all share the same image) ─────────────────────────────
 FROM base AS gateway
