@@ -10,6 +10,8 @@ import {
   FolderKanban,
   Terminal,
   Table2,
+  Zap,
+  Plug,
   Sun,
   Moon,
   LogOut,
@@ -26,6 +28,8 @@ const navItems = [
   { href: '/dashboard/tenants', label: 'Tenants', icon: Building2 },
   { href: '/dashboard/sql', label: 'SQL Editor', icon: Terminal },
   { href: '/dashboard/tables', label: 'Table Editor', icon: Table2 },
+  { href: '/dashboard/functions', label: 'Edge Functions', icon: Zap },
+  { href: '/dashboard/integrations', label: 'Integrations', icon: Plug },
 ]
 
 interface SidebarProps {

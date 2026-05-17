@@ -163,6 +163,19 @@ export const updateTableRow = (
     body: JSON.stringify({ pk, data }),
   })
 
+// Function secrets
+export type FunctionSecret = {
+  name: string
+  digest: string
+  updated_at: string
+}
+
+export const listSecrets = () => request<FunctionSecret[]>('/secrets')
+export const upsertSecrets = (secrets: { name: string; value: string }[]) =>
+  request<object>('/secrets', { method: 'POST', body: JSON.stringify({ secrets }) })
+export const deleteSecret = (name: string) =>
+  request<object>(`/secrets/${encodeURIComponent(name)}`, { method: 'DELETE' })
+
 // Tenants
 export const listTenants = () => request<Tenant[]>('/tenants')
 export const createTenant = (name: string, ownerId: string) =>

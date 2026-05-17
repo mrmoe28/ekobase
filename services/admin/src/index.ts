@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { randomUUID, createHash } from "node:crypto";
 import Fastify from "fastify";
 import pg from "pg";
 import { jwtVerify } from "jose";
@@ -567,6 +567,57 @@ app.patch<{
   }
 );
 
+// Function secrets
+app.get("/secrets", async (request, reply) => {
+  const claims = await getClaimsFromAuth(request.headers.authorization);
+  if (!claims) return reply.code(401).send({ error: "Unauthorized" });
+  const result = await pgClient.query(
+    "SELECT name, value, updated_at FROM admin.function_secrets ORDER BY name"
+  );
+  const rows = result.rows.map((r) => ({
+    name: r.name,
+    digest: createHash("sha256").update(r.value).digest("hex").slice(0, 16),
+    updated_at: r.updated_at,
+  }));
+  return reply.send(rows);
+});
+
+app.post<{ Body: { secrets: { name: string; value: string }[] } }>(
+  "/secrets",
+  async (request, reply) => {
+    const claims = await getClaimsFromAuth(request.headers.authorization);
+    if (!claims) return reply.code(401).send({ error: "Unauthorized" });
+    const { secrets } = request.body;
+    if (!Array.isArray(secrets) || secrets.length === 0)
+      return reply.code(400).send({ error: "secrets array is required" });
+    for (const s of secrets) {
+      if (!s.name || !s.name.trim())
+        return reply.code(400).send({ error: "Each secret must have a name" });
+    }
+    for (const s of secrets) {
+      await pgClient.query(
+        `INSERT INTO admin.function_secrets (name, value, updated_at)
+         VALUES ($1, $2, now())
+         ON CONFLICT (name) DO UPDATE SET value = $2, updated_at = now()`,
+        [s.name.trim(), s.value]
+      );
+    }
+    return reply.code(204).send();
+  }
+);
+
+app.delete<{ Params: { name: string } }>(
+  "/secrets/:name",
+  async (request, reply) => {
+    const claims = await getClaimsFromAuth(request.headers.authorization);
+    if (!claims) return reply.code(401).send({ error: "Unauthorized" });
+    await pgClient.query("DELETE FROM admin.function_secrets WHERE name = $1", [
+      request.params.name,
+    ]);
+    return reply.code(204).send();
+  }
+);
+
 app.get("/stats", async (request, reply) => {
   const userCount = await pgClient.query("select count(*) as count from auth.users");
   const bucketCount = await pgClient.query("select count(*) as count from storage.buckets");
@@ -714,6 +765,16 @@ async function initSchema() {
   try { await pgClient.query(`grant all on all tables in schema auth to authenticator`); } catch { /* ignore */ }
   try { await pgClient.query(`grant usage on schema storage to authenticator`); } catch { /* ignore */ }
   try { await pgClient.query(`grant all on all tables in schema storage to authenticator`); } catch { /* ignore */ }
+
+  // function secrets table
+  await pgClient.query(`
+    create table if not exists admin.function_secrets (
+      name text primary key,
+      value text not null,
+      created_at timestamptz not null default now(),
+      updated_at timestamptz not null default now()
+    )
+  `);
 
   // admin tables
   await pgClient.query(`
