@@ -378,6 +378,24 @@ await app.register(proxy, {
   upstream: postgrestUrl,
   prefix: "/rest/v1",
   rewritePrefix: "",
+  replyOptions: {
+    rewriteRequestHeaders: (_req, headers) => {
+      const auth = (headers["authorization"] as string | undefined) ?? "";
+      if (auth.startsWith("Bearer ")) {
+        try {
+          const payload = JSON.parse(
+            Buffer.from(auth.slice(7).split(".")[1], "base64url").toString()
+          );
+          const projectId: string | undefined = payload.sub;
+          if (projectId) {
+            const schema = "proj_" + projectId.replace(/-/g, "").slice(0, 16);
+            return { ...headers, "accept-profile": schema, "content-profile": schema };
+          }
+        } catch {}
+      }
+      return headers;
+    },
+  },
 });
 
 await app.register(proxy, {
