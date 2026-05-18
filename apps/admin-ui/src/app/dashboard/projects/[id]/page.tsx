@@ -1,377 +1,219 @@
 'use client'
 
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import {
-  ArrowLeft, Copy, Check, Eye, EyeOff, Loader2,
-  Plus, Trash2, Save, FolderKanban,
+  Copy, Check, Eye, EyeOff, Terminal, Table2, Zap, Users,
+  FolderKanban, Loader2,
 } from 'lucide-react'
-import Toast, { type ToastType } from '@/components/Toast'
-import {
-  getProject, updateProject, deleteProject,
-  getProjectKeys, listProjectMembers, addProjectMember, removeProjectMember,
-  listUsers,
-  type Project, type User,
-} from '@/lib/api'
+import { useProject } from '@/contexts/project'
+import { getProjectKeys, listProjectMembers, type User } from '@/lib/api'
 
-const REGIONS = [
-  { value: 'us-east-1',      label: 'US East (N. Virginia)' },
-  { value: 'us-west-2',      label: 'US West (Oregon)' },
-  { value: 'eu-west-1',      label: 'Europe (Ireland)' },
-  { value: 'eu-central-1',   label: 'Europe (Frankfurt)' },
-  { value: 'ap-southeast-1', label: 'Asia Pacific (Singapore)' },
-  { value: 'ap-northeast-1', label: 'Asia Pacific (Tokyo)' },
-]
-
-interface ToastState { message: string; type: ToastType; id: number }
-
-export default function ProjectDetailPage() {
+export default function ProjectOverviewPage() {
+  const project = useProject()
   const { id } = useParams<{ id: string }>()
   const router = useRouter()
-  const [project, setProject] = useState<Project | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [toast, setToast] = useState<ToastState | null>(null)
 
-  const showToast = (message: string, type: ToastType) =>
-    setToast({ message, type, id: Date.now() })
+  const [keys, setKeys] = useState<{ anon_key: string; service_role_key: string } | null>(null)
+  const [members, setMembers] = useState<User[]>([])
+  const [revealed, setRevealed] = useState<Record<string, boolean>>({})
+  const [copied, setCopied] = useState<string | null>(null)
+
+  const projectSchema = 'proj_' + id.replace(/-/g, '').slice(0, 16)
 
   useEffect(() => {
-    getProject(id)
-      .then(setProject)
-      .catch(() => router.replace('/dashboard/projects'))
-      .finally(() => setLoading(false))
-  }, [id, router])
+    getProjectKeys(id).then(setKeys).catch(() => {})
+    listProjectMembers(id).then(setMembers).catch(() => {})
+  }, [id])
 
-  if (loading) {
+  if (!project) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <Loader2 size={28} className="animate-spin" style={{ color: 'var(--accent)' }} />
+      <div className="flex items-center justify-center h-48">
+        <Loader2 size={24} className="animate-spin" style={{ color: 'var(--accent)' }} />
       </div>
     )
   }
 
-  if (!project) return null
-
-  return (
-    <div className="max-w-3xl mx-auto space-y-6">
-      {/* Header */}
-      <div className="flex items-center gap-3">
-        <button
-          onClick={() => router.push('/dashboard/projects')}
-          className="p-1.5 rounded-lg transition-colors duration-150"
-          style={{ color: 'var(--text-muted)' }}
-          onMouseEnter={e => { e.currentTarget.style.color = 'var(--text)' }}
-          onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-muted)' }}
-        >
-          <ArrowLeft size={18} />
-        </button>
-        <div className="w-8 h-8 rounded-lg flex items-center justify-center"
-          style={{ backgroundColor: 'color-mix(in srgb, var(--accent) 15%, transparent)' }}>
-          <FolderKanban size={16} style={{ color: 'var(--accent)' }} />
-        </div>
-        <div>
-          <h1 className="text-xl font-semibold" style={{ color: 'var(--text)' }}>{project.name}</h1>
-          <span className="text-xs font-mono px-1.5 py-0.5 rounded"
-            style={{ backgroundColor: 'var(--bg)', color: 'var(--text-muted)', border: '1px solid var(--border)' }}>
-            {project.region}
-          </span>
-        </div>
-      </div>
-
-      <SettingsSection project={project} onUpdate={setProject} showToast={showToast} />
-      <ApiKeysSection projectId={id} showToast={showToast} />
-      <MembersSection projectId={id} showToast={showToast} />
-      <DangerZone projectId={id} projectName={project.name} showToast={showToast} router={router} />
-
-      {toast && <Toast key={toast.id} message={toast.message} type={toast.type} onDismiss={() => setToast(null)} />}
-    </div>
-  )
-}
-
-// ── Settings ──────────────────────────────────────────────────────────────────
-
-function SettingsSection({ project, onUpdate, showToast }: {
-  project: Project
-  onUpdate: (p: Project) => void
-  showToast: (m: string, t: ToastType) => void
-}) {
-  const [name, setName] = useState(project.name)
-  const [description, setDescription] = useState(project.description ?? '')
-  const [region, setRegion] = useState(project.region)
-  const [saving, setSaving] = useState(false)
-  const [users, setUsers] = useState<User[]>([])
-  const [ownerId, setOwnerId] = useState(project.owner_id ?? '')
-
-  useEffect(() => { listUsers().then(setUsers).catch(() => {}) }, [])
-
-  const dirty = name !== project.name || description !== (project.description ?? '') ||
-    region !== project.region || ownerId !== (project.owner_id ?? '')
-
-  const handleSave = async (e: FormEvent) => {
-    e.preventDefault()
-    if (!name.trim()) return
-    setSaving(true)
-    try {
-      const updated = await updateProject(project.id, {
-        name: name.trim(),
-        description: description.trim() || null,
-        owner_id: ownerId || null,
-        region,
-      })
-      onUpdate(updated)
-      showToast('Project updated', 'success')
-    } catch (err: unknown) {
-      showToast(err instanceof Error ? err.message : 'Failed to update', 'error')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  return (
-    <Section title="Project settings">
-      <form onSubmit={handleSave} className="space-y-4">
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div>
-            <label className="label">Name</label>
-            <input className="input-field" value={name} onChange={e => setName(e.target.value)} />
-          </div>
-          <div>
-            <label className="label">Region</label>
-            <select className="input-field" value={region} onChange={e => setRegion(e.target.value)}>
-              {REGIONS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
-            </select>
-          </div>
-        </div>
-        <div>
-          <label className="label">Description</label>
-          <textarea className="input-field resize-none" rows={2}
-            value={description} onChange={e => setDescription(e.target.value)} />
-        </div>
-        <div>
-          <label className="label">Owner</label>
-          <select className="input-field" value={ownerId} onChange={e => setOwnerId(e.target.value)}>
-            <option value="">— No owner —</option>
-            {users.map(u => <option key={u.id} value={u.id}>{u.email}</option>)}
-          </select>
-        </div>
-        <div className="flex justify-end">
-          <button type="submit" className="btn-primary" disabled={!dirty || saving}>
-            {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
-            {saving ? 'Saving…' : 'Save changes'}
-          </button>
-        </div>
-      </form>
-    </Section>
-  )
-}
-
-// ── API Keys ──────────────────────────────────────────────────────────────────
-
-function ApiKeysSection({ projectId, showToast }: {
-  projectId: string
-  showToast: (m: string, t: ToastType) => void
-}) {
-  const [keys, setKeys] = useState<{ anon_key: string; service_role_key: string } | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [revealed, setRevealed] = useState<Record<string, boolean>>({})
-  const [copied, setCopied] = useState<string | null>(null)
-
-  const load = async () => {
-    setLoading(true)
-    try { setKeys(await getProjectKeys(projectId)) }
-    catch { showToast('Failed to load API keys', 'error') }
-    finally { setLoading(false) }
-  }
-
-  useEffect(() => { load() }, [projectId])
-
-  const copy = async (key: string, label: string) => {
-    await navigator.clipboard.writeText(key)
+  const copy = async (val: string, label: string) => {
+    await navigator.clipboard.writeText(val)
     setCopied(label)
-    showToast(`${label} copied to clipboard`, 'success')
     setTimeout(() => setCopied(null), 2000)
   }
 
-  const keyRows = keys ? [
-    { label: 'Anon key', value: keys.anon_key },
-    { label: 'Service role key', value: keys.service_role_key },
-  ] : []
+  const quickActions = [
+    { label: 'Table Editor', icon: Table2, href: `/dashboard/projects/${id}/editor` },
+    { label: 'SQL Editor', icon: Terminal, href: `/dashboard/projects/${id}/sql` },
+    { label: 'Edge Functions', icon: Zap, href: `/dashboard/projects/${id}/functions` },
+  ]
+
+  const keyRows = keys
+    ? [
+        { label: 'Anon key', value: keys.anon_key },
+        { label: 'Service role key', value: keys.service_role_key },
+      ]
+    : []
 
   return (
-    <Section title="API keys">
-      {loading ? (
-        <div className="space-y-3">{[0, 1].map(i => <div key={i} className="skeleton h-12 w-full" />)}</div>
-      ) : (
+    <div className="max-w-3xl space-y-6">
+      <div className="flex items-start gap-3">
+        <div
+          className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
+          style={{ backgroundColor: 'color-mix(in srgb, var(--accent) 15%, transparent)' }}
+        >
+          <FolderKanban size={18} style={{ color: 'var(--accent)' }} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <h1 className="text-xl font-semibold" style={{ color: 'var(--text)' }}>
+            {project.name}
+          </h1>
+          {project.description && (
+            <p className="text-sm mt-0.5" style={{ color: 'var(--text-muted)' }}>
+              {project.description}
+            </p>
+          )}
+        </div>
+        <span
+          className="text-xs font-mono px-2 py-1 rounded-lg shrink-0"
+          style={{
+            backgroundColor: 'var(--bg)',
+            border: '1px solid var(--border)',
+            color: 'var(--text-muted)',
+          }}
+        >
+          {project.region}
+        </span>
+      </div>
+
+      <div className="grid grid-cols-3 gap-3">
+        {quickActions.map(({ label, icon: Icon, href }) => (
+          <button
+            key={href}
+            onClick={() => router.push(href)}
+            className="flex flex-col items-center gap-2 p-4 rounded-xl text-sm font-medium card transition-colors duration-150"
+            style={{ border: '1px solid var(--border)', color: 'var(--text-muted)' }}
+            onMouseEnter={e => {
+              e.currentTarget.style.borderColor = 'var(--accent)'
+              e.currentTarget.style.color = 'var(--accent)'
+            }}
+            onMouseLeave={e => {
+              e.currentTarget.style.borderColor = 'var(--border)'
+              e.currentTarget.style.color = 'var(--text-muted)'
+            }}
+          >
+            <Icon size={20} />
+            {label}
+          </button>
+        ))}
+      </div>
+
+      <div className="card p-5" style={{ border: '1px solid var(--border)' }}>
+        <h2 className="text-sm font-semibold mb-4" style={{ color: 'var(--text)' }}>
+          API configuration
+        </h2>
         <div className="space-y-3">
+          <div>
+            <p className="label mb-1">Project schema</p>
+            <div className="flex items-center gap-2">
+              <code
+                className="flex-1 px-3 py-2 rounded-xl text-xs font-mono"
+                style={{
+                  backgroundColor: 'var(--bg)',
+                  border: '1px solid var(--border)',
+                  color: 'var(--text)',
+                }}
+              >
+                {projectSchema}
+              </code>
+              <button
+                onClick={() => copy(projectSchema, 'schema')}
+                className="p-2 rounded-xl"
+                style={{
+                  border: '1px solid var(--border)',
+                  color: copied === 'schema' ? 'var(--accent)' : 'var(--text-muted)',
+                }}
+              >
+                {copied === 'schema' ? <Check size={14} /> : <Copy size={14} />}
+              </button>
+            </div>
+          </div>
+
           {keyRows.map(({ label, value }) => (
             <div key={label}>
               <p className="label mb-1">{label}</p>
               <div className="flex items-center gap-2">
-                <div className="flex-1 flex items-center rounded-xl px-3 py-2 font-mono text-xs overflow-hidden"
-                  style={{ backgroundColor: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text-muted)' }}>
+                <div
+                  className="flex-1 flex items-center rounded-xl px-3 py-2 font-mono text-xs overflow-hidden"
+                  style={{
+                    backgroundColor: 'var(--bg)',
+                    border: '1px solid var(--border)',
+                    color: 'var(--text-muted)',
+                  }}
+                >
                   <span className="truncate">
-                    {revealed[label] ? value : `${value.slice(0, 20)}${'•'.repeat(24)}`}
+                    {revealed[label] ? value : `${value.slice(0, 20)}${'•'.repeat(20)}`}
                   </span>
                 </div>
-                <button onClick={() => setRevealed(r => ({ ...r, [label]: !r[label] }))}
-                  className="p-2 rounded-xl transition-colors duration-150"
+                <button
+                  onClick={() => setRevealed(r => ({ ...r, [label]: !r[label] }))}
+                  className="p-2 rounded-xl"
                   style={{ border: '1px solid var(--border)', color: 'var(--text-muted)' }}
-                  title={revealed[label] ? 'Hide' : 'Reveal'}>
-                  {revealed[label] ? <EyeOff size={15} /> : <Eye size={15} />}
+                >
+                  {revealed[label] ? <EyeOff size={14} /> : <Eye size={14} />}
                 </button>
-                <button onClick={() => copy(value, label)}
-                  className="p-2 rounded-xl transition-colors duration-150"
-                  style={{ border: '1px solid var(--border)', color: copied === label ? 'var(--accent)' : 'var(--text-muted)' }}
-                  title="Copy">
-                  {copied === label ? <Check size={15} /> : <Copy size={15} />}
+                <button
+                  onClick={() => copy(value, label)}
+                  className="p-2 rounded-xl"
+                  style={{
+                    border: '1px solid var(--border)',
+                    color: copied === label ? 'var(--accent)' : 'var(--text-muted)',
+                  }}
+                >
+                  {copied === label ? <Check size={14} /> : <Copy size={14} />}
                 </button>
               </div>
             </div>
           ))}
         </div>
-      )}
-    </Section>
-  )
-}
-
-// ── Members ───────────────────────────────────────────────────────────────────
-
-function MembersSection({ projectId, showToast }: {
-  projectId: string
-  showToast: (m: string, t: ToastType) => void
-}) {
-  const [members, setMembers] = useState<User[]>([])
-  const [allUsers, setAllUsers] = useState<User[]>([])
-  const [loading, setLoading] = useState(true)
-  const [selectedUserId, setSelectedUserId] = useState('')
-  const [adding, setAdding] = useState(false)
-  const [removing, setRemoving] = useState<string | null>(null)
-
-  useEffect(() => {
-    Promise.all([listProjectMembers(projectId), listUsers()])
-      .then(([m, u]) => { setMembers(m); setAllUsers(u) })
-      .catch(() => {})
-      .finally(() => setLoading(false))
-  }, [projectId])
-
-  const memberIds = new Set(members.map(m => m.id))
-  const addable = allUsers.filter(u => !memberIds.has(u.id))
-
-  const handleAdd = async () => {
-    if (!selectedUserId) return
-    setAdding(true)
-    try {
-      const user = await addProjectMember(projectId, selectedUserId)
-      setMembers(prev => [...prev, user])
-      setSelectedUserId('')
-      showToast('Member added', 'success')
-    } catch (err: unknown) {
-      showToast(err instanceof Error ? err.message : 'Failed to add member', 'error')
-    } finally {
-      setAdding(false)
-    }
-  }
-
-  const handleRemove = async (userId: string) => {
-    setRemoving(userId)
-    try {
-      await removeProjectMember(projectId, userId)
-      setMembers(prev => prev.filter(m => m.id !== userId))
-      showToast('Member removed', 'success')
-    } catch (err: unknown) {
-      showToast(err instanceof Error ? err.message : 'Failed to remove member', 'error')
-    } finally {
-      setRemoving(null)
-    }
-  }
-
-  return (
-    <Section title="Members">
-      {/* Add member */}
-      <div className="flex gap-2 mb-4">
-        <select className="input-field flex-1" value={selectedUserId}
-          onChange={e => setSelectedUserId(e.target.value)} disabled={adding}>
-          <option value="">Add a user…</option>
-          {addable.map(u => <option key={u.id} value={u.id}>{u.email}</option>)}
-        </select>
-        <button onClick={handleAdd} disabled={!selectedUserId || adding} className="btn-primary px-3">
-          {adding ? <Loader2 size={15} className="animate-spin" /> : <Plus size={15} />}
-        </button>
       </div>
 
-      {/* Member list */}
-      {loading ? (
-        <div className="space-y-2">{[0, 1].map(i => <div key={i} className="skeleton h-10 w-full" />)}</div>
-      ) : members.length === 0 ? (
-        <p className="text-sm text-center py-4" style={{ color: 'var(--text-muted)' }}>No members yet</p>
-      ) : (
-        <div className="space-y-1">
-          {members.map(member => (
-            <div key={member.id} className="flex items-center justify-between px-3 py-2 rounded-xl"
-              style={{ backgroundColor: 'var(--bg)', border: '1px solid var(--border)' }}>
-              <span className="text-sm" style={{ color: 'var(--text)' }}>{member.email}</span>
-              <button onClick={() => handleRemove(member.id)} disabled={removing === member.id}
-                className="p-1.5 rounded-lg transition-colors duration-150"
-                style={{ color: 'var(--text-muted)' }}
-                onMouseEnter={e => { e.currentTarget.style.color = 'var(--danger)' }}
-                onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-muted)' }}>
-                {removing === member.id ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
-              </button>
-            </div>
-          ))}
+      <div className="card p-5" style={{ border: '1px solid var(--border)' }}>
+        <div className="flex items-center gap-2 mb-3">
+          <h2 className="text-sm font-semibold" style={{ color: 'var(--text)' }}>
+            Members
+          </h2>
+          <span
+            className="text-xs px-1.5 py-0.5 rounded-full font-medium"
+            style={{
+              backgroundColor: 'color-mix(in srgb, var(--accent) 15%, transparent)',
+              color: 'var(--accent)',
+            }}
+          >
+            {members.length}
+          </span>
         </div>
-      )}
-    </Section>
-  )
-}
-
-// ── Danger Zone ───────────────────────────────────────────────────────────────
-
-function DangerZone({ projectId, projectName, showToast, router }: {
-  projectId: string
-  projectName: string
-  showToast: (m: string, t: ToastType) => void
-  router: ReturnType<typeof useRouter>
-}) {
-  const [deleting, setDeleting] = useState(false)
-
-  const handleDelete = async () => {
-    if (!confirm(`Delete "${projectName}"? This cannot be undone.`)) return
-    setDeleting(true)
-    try {
-      await deleteProject(projectId)
-      showToast('Project deleted', 'success')
-      setTimeout(() => router.replace('/dashboard/projects'), 800)
-    } catch (err: unknown) {
-      showToast(err instanceof Error ? err.message : 'Failed to delete', 'error')
-      setDeleting(false)
-    }
-  }
-
-  return (
-    <div className="rounded-2xl p-5"
-      style={{ border: '1px solid color-mix(in srgb, var(--danger) 35%, transparent)' }}>
-      <h2 className="text-sm font-semibold mb-1" style={{ color: 'var(--danger)' }}>Danger zone</h2>
-      <p className="text-sm mb-4" style={{ color: 'var(--text-muted)' }}>
-        Permanently delete this project and all associated data. This action cannot be undone.
-      </p>
-      <button onClick={handleDelete} disabled={deleting}
-        className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-colors duration-150"
-        style={{ backgroundColor: 'color-mix(in srgb, var(--danger) 12%, transparent)', color: 'var(--danger)', border: '1px solid color-mix(in srgb, var(--danger) 35%, transparent)' }}>
-        {deleting ? <Loader2 size={15} className="animate-spin" /> : <Trash2 size={15} />}
-        {deleting ? 'Deleting…' : 'Delete project'}
-      </button>
-    </div>
-  )
-}
-
-// ── Shared ────────────────────────────────────────────────────────────────────
-
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div className="card p-5" style={{ border: '1px solid var(--border)' }}>
-      <h2 className="text-sm font-semibold mb-4" style={{ color: 'var(--text)' }}>{title}</h2>
-      {children}
+        {members.length === 0 ? (
+          <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
+            No members — add them in Project Settings.
+          </p>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {members.map(m => (
+              <span
+                key={m.id}
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs"
+                style={{
+                  backgroundColor: 'var(--bg)',
+                  border: '1px solid var(--border)',
+                  color: 'var(--text)',
+                }}
+              >
+                <Users size={11} style={{ color: 'var(--text-muted)' }} />
+                {m.email}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   )
 }
