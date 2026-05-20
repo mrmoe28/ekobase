@@ -37,7 +37,8 @@ services:
       PGRST_DB_ANON_ROLE: postgres
       PGRST_JWT_SECRET: ${JWT_SECRET:-local-dev-jwt-secret-change-me-at-least-32-chars}
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
     networks:
       - coolify
     restart: unless-stopped
@@ -52,7 +53,8 @@ services:
       JWT_SECRET: ${JWT_SECRET:-local-dev-jwt-secret-change-me-at-least-32-chars}
       ADMIN_PORT: "54325"
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
     networks:
       - coolify
     restart: unless-stopped
@@ -72,7 +74,8 @@ services:
       STORAGE_URL: http://storage:54324
       ADMIN_URL: http://admin-service:54325
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
     ports:
       - "54321:54321"
     networks:
@@ -99,6 +102,14 @@ services:
       JWT_SECRET: ${JWT_SECRET:-local-dev-jwt-secret-change-me-at-least-32-chars}
       FUNCTIONS_PORT: "54322"
       FUNCTIONS_DIR: /app/examples/functions
+      # ── shared by all functions that call back into EkoBase ──
+      SUPABASE_URL: ${SUPABASE_URL:-https://supabase.ekodevops.com}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+      # ── square-oauth ──
+      SQUARE_APP_ID: ${SQUARE_APP_ID}
+      SQUARE_APP_SECRET: ${SQUARE_APP_SECRET}
+      SQUARE_ENVIRONMENT: ${SQUARE_ENVIRONMENT:-production}
+      APP_URL: ${APP_URL:-https://ops.lock28.com}
     networks:
       - coolify
     restart: unless-stopped

@@ -2,6 +2,12 @@ import { pathToFileURL } from "node:url";
 import path from "node:path";
 import Fastify from "fastify";
 
+type HttpResponseShape = {
+  statusCode: number;
+  headers?: Record<string, string | number>;
+  body?: unknown;
+};
+
 type FunctionModule = {
   handler: (request: {
     method: string;
@@ -10,6 +16,14 @@ type FunctionModule = {
     query: unknown;
   }) => Promise<unknown> | unknown;
 };
+
+function isHttpResponseShape(value: unknown): value is HttpResponseShape {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as { statusCode?: unknown }).statusCode === "number"
+  );
+}
 
 const port = Number(process.env.FUNCTIONS_PORT ?? 54322);
 const functionsDir =
@@ -35,6 +49,16 @@ app.all("/:functionName", async (request, reply) => {
     body: request.body,
     query: request.query,
   });
+
+  if (isHttpResponseShape(result)) {
+    reply.code(result.statusCode);
+    if (result.headers) {
+      for (const [k, v] of Object.entries(result.headers)) {
+        reply.header(k, v);
+      }
+    }
+    return reply.send(result.body ?? "");
+  }
 
   return reply.send(result);
 });
