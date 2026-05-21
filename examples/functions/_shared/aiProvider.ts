@@ -195,19 +195,19 @@ export async function summarizeTranscript(input: {
   }
 
   const system = [
-    "You are summarizing a transcript from a residential solar field-operations call",
-    "(sales, service, install scheduling). Return ONLY a JSON object — no prose, no markdown fences.",
+    "You summarize transcripts of business conversations, meetings, voice notes, and site visits.",
+    "Return ONLY a JSON object — no prose, no markdown fences.",
   ].join(" ");
 
   const user = [
-    "Summarize the following solar field-ops transcript. Return a single JSON object with exactly these fields:",
-    "- shortSummary: string (1 sentence)",
-    "- detailedSummary: string (2-3 sentences)",
-    "- customerIssue: string or null (the customer's primary concern/problem, if any)",
-    "- keyPoints: string[] (max 6 important points)",
-    "- equipmentMentioned: string[] (solar equipment referenced — panels, inverters, batteries, MSPs, breakers, etc.)",
-    "- promisesMade: string[] (specific things the rep committed to)",
-    "- followUpNeeded: boolean",
+    "Summarize the following transcript. Return a single JSON object with exactly these fields:",
+    "- shortSummary: string (1 sentence capturing the gist)",
+    "- detailedSummary: string (2-3 sentences with the most important context)",
+    "- customerIssue: string or null (any specific problem, complaint, or open question raised; null if none)",
+    "- keyPoints: string[] (up to 6 important points from the conversation)",
+    "- equipmentMentioned: string[] (concrete items, products, tools, or equipment named; empty array if none)",
+    "- promisesMade: string[] (specific commitments any speaker made — what, by when; empty array if none)",
+    "- followUpNeeded: boolean (true if there is at least one open action, decision, or commitment that needs follow-up)",
     "",
     "Transcript:",
     input.transcript,
@@ -245,7 +245,7 @@ export async function extractActionItems(input: {
   }
 
   const system = [
-    "Extract concrete follow-up actions from this solar call transcript.",
+    "Extract concrete follow-up actions from this transcript.",
     "Each must be something a specific person needs to do.",
     "Return ONLY a JSON array — no prose.",
   ].join(" ");
