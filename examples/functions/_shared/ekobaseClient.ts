@@ -1,5 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
-import { bearerToken, HandlerRequest } from "./http.ts";
+import { bearerToken, type HandlerRequest } from "./http.ts";
 
 const EKOBASE_URL = process.env.EKOBASE_URL ?? process.env.SUPABASE_URL;
 const EKOBASE_ANON_KEY = process.env.EKOBASE_ANON_KEY ?? process.env.SUPABASE_ANON_KEY;
