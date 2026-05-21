@@ -15,6 +15,8 @@ export type SummaryResult = {
   equipmentMentioned: string[];
   promisesMade: string[];
   followUpNeeded: boolean;
+  strategyUseCase: string | null;
+  strategyApplications: string[];
 };
 
 export type ExtractedActionItem = {
@@ -69,6 +71,8 @@ const PLACEHOLDER_SUMMARY: SummaryResult = {
   equipmentMentioned: [],
   promisesMade: [],
   followUpNeeded: false,
+  strategyUseCase: null,
+  strategyApplications: [],
 };
 
 function stripJsonFences(text: string): string {
@@ -208,6 +212,8 @@ export async function summarizeTranscript(input: {
     "- equipmentMentioned: string[] (concrete items, products, tools, or equipment named; empty array if none)",
     "- promisesMade: string[] (specific commitments any speaker made — what, by when; empty array if none)",
     "- followUpNeeded: boolean (true if there is at least one open action, decision, or commitment that needs follow-up)",
+    "- strategyUseCase: string or null (one paragraph describing a concrete real-world scenario where this conversation's content directly applies — name the situation, the actors, and the outcome; null only if there is no actionable substance)",
+    "- strategyApplications: string[] (3-5 concrete, specific ways the listener can apply what was discussed to their day-to-day work this week — each item should start with an imperative verb, e.g. 'Block 30 min on Friday to ...', 'Add a checklist item that ...')",
     "",
     "Transcript:",
     input.transcript,
@@ -233,6 +239,8 @@ export async function summarizeTranscript(input: {
     equipmentMentioned: asStringArray(parsed.equipmentMentioned),
     promisesMade: asStringArray(parsed.promisesMade),
     followUpNeeded: parsed.followUpNeeded === true,
+    strategyUseCase: asNullableString(parsed.strategyUseCase),
+    strategyApplications: asStringArray(parsed.strategyApplications, 5),
   };
 }
 

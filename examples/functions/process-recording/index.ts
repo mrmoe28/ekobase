@@ -92,6 +92,8 @@ export async function handler(req: any) {
       equipment_mentioned: summary.equipmentMentioned,
       promises_made: summary.promisesMade,
       follow_up_needed: summary.followUpNeeded,
+      strategy_use_case: summary.strategyUseCase,
+      strategy_applications: summary.strategyApplications,
     }, { onConflict: "recording_id" });
 
     const actionItems = await extractActionItems({
