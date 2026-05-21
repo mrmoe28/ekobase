@@ -61,23 +61,31 @@ export async function handler(req: any) {
   const body = requireObjectBody(req.body);
   if (!body) return badRequest("JSON body required");
 
+  const rawIds = Array.isArray((body as Record<string, unknown>).recording_ids)
+    ? ((body as Record<string, unknown>).recording_ids as unknown[]).filter(
+        (x): x is string => typeof x === "string" && x.length > 0,
+      )
+    : null;
   const fromDate = dateOnly(body.from);
   const toDate = dateOnly(body.to);
-  if (!fromDate || !toDate) {
-    return badRequest("from and to dates are required in YYYY-MM-DD format");
+  const useIds = rawIds && rawIds.length > 0;
+  if (!useIds && (!fromDate || !toDate)) {
+    return badRequest("either recording_ids[] or from+to dates are required");
   }
 
-  const startUtc = `${fromDate}T00:00:00.000Z`;
-  const endDate = new Date(`${toDate}T00:00:00.000Z`);
-  endDate.setUTCDate(endDate.getUTCDate() + 1);
-  const endUtc = endDate.toISOString();
-
-  const { data: recordings, error: recordingsErr } = await auth.client
+  let recordingsQuery = auth.client
     .from("recordings")
     .select("id, title, recording_type, recorded_at, status")
-    .gte("recorded_at", startUtc)
-    .lt("recorded_at", endUtc)
     .order("recorded_at", { ascending: true });
+  if (useIds) {
+    recordingsQuery = recordingsQuery.in("id", rawIds!);
+  } else {
+    const startUtc = `${fromDate!}T00:00:00.000Z`;
+    const endDate = new Date(`${toDate!}T00:00:00.000Z`);
+    endDate.setUTCDate(endDate.getUTCDate() + 1);
+    recordingsQuery = recordingsQuery.gte("recorded_at", startUtc).lt("recorded_at", endDate.toISOString());
+  }
+  const { data: recordings, error: recordingsErr } = await recordingsQuery;
   if (recordingsErr) return serverError("Failed to load recordings", recordingsErr.message);
 
   const recordingsList = (recordings ?? []) as RecordingRow[];
@@ -85,9 +93,10 @@ export async function handler(req: any) {
     return json(200, {
       from: fromDate,
       to: toDate,
+      recording_ids: useIds ? rawIds : null,
       recording_count: 0,
       rollup: {
-        headline: "Nothing recorded in this window yet.",
+        headline: useIds ? "None of the selected recordings were found." : "Nothing recorded in this window yet.",
         themes: [],
         recurring_promises: [],
         weekly_plays: [],
@@ -138,8 +147,11 @@ export async function handler(req: any) {
     "Return ONLY a JSON object — no prose, no markdown fences.",
   ].join(" ");
 
+  const scopeLine = useIds
+    ? `Selected ${recordingsList.length} recording(s) by id.`
+    : `Date range: ${fromDate} to ${toDate} (${recordingsList.length} recordings).`;
   const user = [
-    `Date range: ${fromDate} to ${toDate} (${recordingsList.length} recordings).`,
+    scopeLine,
     "",
     "Return a single JSON object with exactly these fields:",
     "- headline: string (1 punchy sentence — the most important takeaway across all recordings)",
