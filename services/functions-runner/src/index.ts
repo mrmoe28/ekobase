@@ -1,5 +1,5 @@
 import { pathToFileURL } from "node:url";
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import Fastify from "fastify";
 
@@ -104,4 +104,23 @@ app.all("/:functionName", async (request, reply) => {
   return reply.send(outcome.result);
 });
 
+// Eager-load all function modules so the first request to each endpoint
+// doesn't pay the .ts strip-types + dependency-graph compile cost.
+async function prewarmFunctions(dir: string) {
+  if (!existsSync(dir)) return;
+  for (const entry of readdirSync(dir)) {
+    if (entry.startsWith("_")) continue;
+    const indexPath = path.join(dir, entry, "index.ts");
+    if (existsSync(indexPath) && statSync(indexPath).isFile()) {
+      try {
+        await import(pathToFileURL(indexPath).href);
+        app.log.info({ fn: entry }, "prewarmed");
+      } catch (err) {
+        app.log.warn({ fn: entry, err: (err as Error).message }, "prewarm failed");
+      }
+    }
+  }
+}
+
+await prewarmFunctions(functionsDir);
 await app.listen({ host: "0.0.0.0", port });
