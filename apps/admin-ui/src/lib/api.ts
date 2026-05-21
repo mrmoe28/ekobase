@@ -252,6 +252,104 @@ export const upsertSecrets = (secrets: { name: string; value: string }[]) =>
 export const deleteSecret = (name: string) =>
   request<object>(`/secrets/${encodeURIComponent(name)}`, { method: 'DELETE' })
 
+// Storage
+export type StorageBucket = {
+  id: string
+  name: string
+  public: boolean
+  owner_id: string
+  project_id: string
+  private_user_scoped: boolean
+  created_at: string
+  updated_at: string
+  file_count: number
+}
+
+export type StorageFile = {
+  id: string
+  bucket_id: string
+  name: string
+  size: number
+  content_type: string
+  owner_id: string
+  created_at: string
+  updated_at: string
+}
+
+export const listBuckets = (projectId: string) =>
+  request<StorageBucket[]>(`/projects/${projectId}/buckets`)
+
+export const createBucket = (
+  projectId: string,
+  body: { name: string; public?: boolean; private_user_scoped?: boolean },
+) =>
+  request<StorageBucket>(`/projects/${projectId}/buckets`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+
+export const deleteBucket = (projectId: string, bucketName: string) =>
+  request<object>(`/projects/${projectId}/buckets/${encodeURIComponent(bucketName)}`, {
+    method: 'DELETE',
+  })
+
+export const listBucketFiles = (projectId: string, bucketName: string) =>
+  request<StorageFile[]>(`/projects/${projectId}/buckets/${encodeURIComponent(bucketName)}/files`)
+
+export const uploadBucketFile = async (
+  projectId: string,
+  bucketName: string,
+  fileName: string,
+  file: File | Blob,
+): Promise<StorageFile> => {
+  const token = getToken()
+  const path = fileName.split('/').map(encodeURIComponent).join('/')
+  const res = await fetch(
+    `${BASE_URL}/projects/${projectId}/buckets/${encodeURIComponent(bucketName)}/files/${path}`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token ?? ''}`,
+        'Content-Type': (file as File).type || 'application/octet-stream',
+      },
+      body: file,
+    },
+  )
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    throw new Error((data as { error?: string }).error ?? `Upload failed (${res.status})`)
+  }
+  return data as StorageFile
+}
+
+export const downloadBucketFile = async (
+  projectId: string,
+  bucketName: string,
+  fileName: string,
+): Promise<Blob> => {
+  const token = getToken()
+  const path = fileName.split('/').map(encodeURIComponent).join('/')
+  const res = await fetch(
+    `${BASE_URL}/projects/${projectId}/buckets/${encodeURIComponent(bucketName)}/files/${path}`,
+    { headers: { Authorization: `Bearer ${token ?? ''}` } },
+  )
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}))
+    throw new Error((data as { error?: string }).error ?? `Download failed (${res.status})`)
+  }
+  return res.blob()
+}
+
+export const deleteBucketFile = (
+  projectId: string,
+  bucketName: string,
+  fileName: string,
+) =>
+  request<object>(
+    `/projects/${projectId}/buckets/${encodeURIComponent(bucketName)}/files/${fileName.split('/').map(encodeURIComponent).join('/')}`,
+    { method: 'DELETE' },
+  )
+
 // Tenants
 export const listTenants = () => request<Tenant[]>('/tenants')
 export const createTenant = (name: string, ownerId: string) =>

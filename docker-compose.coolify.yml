@@ -53,6 +53,7 @@ services:
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set to a strong random value}
       ADMIN_PORT: "54325"
       POSTGREST_DB_ROLE: postgres
+      STORAGE_URL: http://storage:54324
     depends_on:
       postgres:
         condition: service_healthy

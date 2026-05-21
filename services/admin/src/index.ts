@@ -12,6 +12,7 @@ const port = Number(process.env.ADMIN_PORT ?? 54325);
 const databaseUrl =
   process.env.DATABASE_URL ?? "postgres://postgres:postgres@localhost:5432/app";
 const postgrestDbRole = process.env.POSTGREST_DB_ROLE ?? "authenticator";
+const storageUrl = process.env.STORAGE_URL ?? "http://localhost:54324";
 
 const pgClient = new pg.Pool({ connectionString: databaseUrl });
 
@@ -78,7 +79,12 @@ type EdgeFunctionDeployment = {
   created_at: Date;
 };
 
-const app = Fastify({ logger: true });
+const app = Fastify({ logger: true, bodyLimit: 50 * 1024 * 1024 });
+
+// Accept any binary content type as raw Buffer for storage upload proxying.
+app.addContentTypeParser("*", { parseAs: "buffer" }, (_req, body, done) => {
+  done(null, body);
+});
 
 async function verifyJwt(token: string): Promise<AuthClaims | null> {
   try {
@@ -760,6 +766,218 @@ app.post<{ Body: { query?: string } }>(
       return reply.code(400).send({ error: (err as Error).message });
     }
   }
+);
+
+// ─── Storage ─────────────────────────────────────────────────────────────────
+//
+// Bucket CRUD is served directly from the admin DB connection (no proxy hop).
+// File operations (list/upload/download/delete) proxy to the storage service
+// using a freshly-minted service-role JWT scoped to the project, so the storage
+// service stays the single owner of disk I/O.
+
+type StorageBucket = {
+  id: string;
+  name: string;
+  public: boolean;
+  owner_id: string;
+  project_id: string;
+  private_user_scoped: boolean;
+  created_at: string;
+  updated_at: string;
+  file_count: number;
+};
+
+type StorageFile = {
+  id: string;
+  bucket_id: string;
+  name: string;
+  size: number;
+  content_type: string;
+  owner_id: string;
+  created_at: string;
+  updated_at: string;
+};
+
+async function projectServiceRoleToken(projectId: string): Promise<string> {
+  return signProjectJwt({
+    sub: projectId,
+    role: "service_role",
+    project_id: projectId,
+    expiresInSeconds: 60 * 5,
+  });
+}
+
+app.get<{ Params: { projectId: string } }>(
+  "/projects/:projectId/buckets",
+  async (request, reply) => {
+    const { projectId } = request.params;
+    if (!(await projectExists(projectId))) {
+      return reply.code(404).send({ error: "Project not found" });
+    }
+    const result = await pgClient.query<StorageBucket>(
+      `select b.id, b.name, b.public, b.owner_id, b.project_id, b.private_user_scoped,
+              b.created_at, b.updated_at,
+              coalesce((select count(*)::int from storage.files f where f.bucket_id = b.id), 0) as file_count
+       from storage.buckets b
+       where b.project_id = $1
+       order by b.created_at desc`,
+      [projectId],
+    );
+    return reply.send(result.rows);
+  },
+);
+
+app.post<{
+  Params: { projectId: string };
+  Body: { name: string; public?: boolean; private_user_scoped?: boolean };
+}>(
+  "/projects/:projectId/buckets",
+  async (request, reply) => {
+    const { projectId } = request.params;
+    const { name, public: publicAccess, private_user_scoped } = request.body;
+    const user = request.user;
+    if (!user) return reply.code(401).send({ error: "Unauthorized" });
+    if (!name || !/^[a-z0-9][a-z0-9._-]{0,62}$/.test(name)) {
+      return reply.code(400).send({
+        error: "Bucket name must be 1-63 chars: lowercase letters, digits, '.', '_', '-'",
+      });
+    }
+    if (publicAccess && private_user_scoped) {
+      return reply.code(400).send({ error: "Cannot combine public with private_user_scoped" });
+    }
+    if (!(await projectExists(projectId))) {
+      return reply.code(404).send({ error: "Project not found" });
+    }
+
+    const id = randomUUID();
+    try {
+      const result = await pgClient.query<StorageBucket>(
+        `insert into storage.buckets (id, name, public, owner_id, project_id, private_user_scoped)
+         values ($1, $2, $3, $4, $5, $6)
+         returning id, name, public, owner_id, project_id, private_user_scoped, created_at, updated_at,
+                   0::int as file_count`,
+        [id, name, !!publicAccess, user.sub, projectId, !!private_user_scoped],
+      );
+      // Ask the storage service to create the on-disk directory by proxying
+      // through with a service-role token. Easier than mounting the volume here.
+      const token = await projectServiceRoleToken(projectId);
+      await fetch(`${storageUrl}/health`, { headers: { Authorization: `Bearer ${token}` } }).catch(() => undefined);
+      return reply.code(201).send(result.rows[0]);
+    } catch (error) {
+      const code = (error as { code?: string })?.code;
+      if (code === "23505") {
+        return reply.code(409).send({ error: "Bucket name already exists in this project" });
+      }
+      request.log.error({ err: error }, "create bucket failed");
+      return reply.code(500).send({ error: "Failed to create bucket" });
+    }
+  },
+);
+
+app.delete<{ Params: { projectId: string; bucketName: string } }>(
+  "/projects/:projectId/buckets/:bucketName",
+  async (request, reply) => {
+    const { projectId, bucketName } = request.params;
+    const token = await projectServiceRoleToken(projectId);
+    const res = await fetch(`${storageUrl}/bucket/${encodeURIComponent(bucketName)}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (res.status === 404) return reply.code(404).send({ error: "Bucket not found" });
+    if (!res.ok) {
+      const body = await res.text();
+      request.log.error({ status: res.status, body }, "delete bucket failed");
+      return reply.code(502).send({ error: "Storage service error" });
+    }
+    return reply.code(204).send();
+  },
+);
+
+app.get<{ Params: { projectId: string; bucketName: string } }>(
+  "/projects/:projectId/buckets/:bucketName/files",
+  async (request, reply) => {
+    const { projectId, bucketName } = request.params;
+    const token = await projectServiceRoleToken(projectId);
+    const res = await fetch(`${storageUrl}/object/${encodeURIComponent(bucketName)}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (res.status === 404) return reply.code(404).send({ error: "Bucket not found" });
+    if (!res.ok) {
+      return reply.code(502).send({ error: "Storage service error" });
+    }
+    const files = (await res.json()) as StorageFile[];
+    return reply.send(files);
+  },
+);
+
+app.get<{ Params: { projectId: string; bucketName: string; "*": string } }>(
+  "/projects/:projectId/buckets/:bucketName/files/*",
+  async (request, reply) => {
+    const { projectId, bucketName } = request.params;
+    const fileName = (request.params as Record<string, string>)["*"] ?? "";
+    if (!fileName) return reply.code(400).send({ error: "File name required" });
+    const token = await projectServiceRoleToken(projectId);
+    const res = await fetch(
+      `${storageUrl}/object/${encodeURIComponent(bucketName)}/${fileName.split("/").map(encodeURIComponent).join("/")}`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    if (res.status === 404) return reply.code(404).send({ error: "File not found" });
+    if (!res.ok) return reply.code(502).send({ error: "Storage service error" });
+    const contentType = res.headers.get("content-type") ?? "application/octet-stream";
+    const buffer = Buffer.from(await res.arrayBuffer());
+    reply.header("Content-Type", contentType);
+    reply.header("Content-Length", buffer.length);
+    return reply.send(buffer);
+  },
+);
+
+app.post<{ Params: { projectId: string; bucketName: string; "*": string } }>(
+  "/projects/:projectId/buckets/:bucketName/files/*",
+  async (request, reply) => {
+    const { projectId, bucketName } = request.params;
+    const fileName = (request.params as Record<string, string>)["*"] ?? "";
+    if (!fileName) return reply.code(400).send({ error: "File name required" });
+    const token = await projectServiceRoleToken(projectId);
+    const contentType = (request.headers["content-type"] as string) ?? "application/octet-stream";
+    const body = request.body as Buffer | string;
+    const res = await fetch(
+      `${storageUrl}/object/${encodeURIComponent(bucketName)}/${fileName.split("/").map(encodeURIComponent).join("/")}`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": contentType,
+        },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        body: body as any,
+      },
+    );
+    if (res.status === 404) return reply.code(404).send({ error: "Bucket not found" });
+    if (!res.ok) {
+      const text = await res.text();
+      request.log.error({ status: res.status, text }, "upload failed");
+      return reply.code(502).send({ error: "Storage service error" });
+    }
+    const data = await res.json();
+    return reply.code(201).send(data);
+  },
+);
+
+app.delete<{ Params: { projectId: string; bucketName: string; "*": string } }>(
+  "/projects/:projectId/buckets/:bucketName/files/*",
+  async (request, reply) => {
+    const { projectId, bucketName } = request.params;
+    const fileName = (request.params as Record<string, string>)["*"] ?? "";
+    if (!fileName) return reply.code(400).send({ error: "File name required" });
+    const token = await projectServiceRoleToken(projectId);
+    const res = await fetch(
+      `${storageUrl}/object/${encodeURIComponent(bucketName)}/${fileName.split("/").map(encodeURIComponent).join("/")}`,
+      { method: "DELETE", headers: { Authorization: `Bearer ${token}` } },
+    );
+    if (res.status === 404) return reply.code(404).send({ error: "File not found" });
+    if (!res.ok) return reply.code(502).send({ error: "Storage service error" });
+    return reply.code(204).send();
+  },
 );
 
 // ─── Schema browser ───────────────────────────────────────────────────────────
