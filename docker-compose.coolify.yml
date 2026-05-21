@@ -33,7 +33,7 @@ services:
     image: postgrest/postgrest:v12.2.8
     environment:
       PGRST_DB_URI: postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/postgres
-      PGRST_DB_SCHEMAS: "public,proj_fbe4ecd703954909,proj_577e06dea1c54d2b,proj_f38f72738f4c46f0,proj_87a5f6af442e4231,proj_75ce0d135acd4740,proj_56f5a158d1fc4fac,proj_71a7261327154f3c,proj_781596e0441749e5,proj_239184b2523448a9"
+      PGRST_DB_SCHEMAS: "public,proj_fbe4ecd703954909,proj_577e06dea1c54d2b,proj_f38f72738f4c46f0,proj_87a5f6af442e4231,proj_75ce0d135acd4740,proj_56f5a158d1fc4fac,proj_71a7261327154f3c,proj_781596e0441749e5,proj_239184b2523448a9,proj_48aa4d9a9ac8495c"
       PGRST_DB_ANON_ROLE: postgres
       PGRST_JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set to a strong random value}
     depends_on:
@@ -112,6 +112,9 @@ services:
       SQUARE_APP_SECRET: ${SQUARE_APP_SECRET}
       SQUARE_ENVIRONMENT: ${SQUARE_ENVIRONMENT:-production}
       APP_URL: ${APP_URL:-https://ops.lock28.com}
+      # ── hawk (transcription) ──
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      WHISPER_URL: ${WHISPER_URL:-http://192.168.1.194:8000}
     networks:
       - coolify
     restart: unless-stopped
