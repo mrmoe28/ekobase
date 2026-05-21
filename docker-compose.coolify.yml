@@ -114,6 +114,10 @@ services:
       SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
       # functions call back into the gateway internally to avoid Cloudflare loopback timeouts
       EKOBASE_URL: ${EKOBASE_URL:-http://gateway:54321}
+      # Hawk-scoped service role key (sub=Hawk project id, so the gateway routes
+      # to proj_48aa4d9a9ac8495c instead of the field-ops schema embedded in
+      # SUPABASE_SERVICE_ROLE_KEY)
+      EKOBASE_SERVICE_ROLE_KEY: ${EKOBASE_SERVICE_ROLE_KEY}
       # ── square-oauth ──
       SQUARE_APP_ID: ${SQUARE_APP_ID}
       SQUARE_APP_SECRET: ${SQUARE_APP_SECRET}
