@@ -88,8 +88,10 @@ export const createUser = (email: string, password: string) =>
   })
 export const deleteUser = (userId: string) =>
   request<object>(`/users/${userId}`, { method: 'DELETE' })
-export const impersonateUser = (userId: string) =>
-  request<ImpersonateResult>(`/users/${userId}/impersonate`)
+export const impersonateUser = (userId: string, projectId?: string) =>
+  request<ImpersonateResult>(
+    `/users/${userId}/impersonate${projectId ? `?project_id=${encodeURIComponent(projectId)}` : ''}`,
+  )
 
 // Projects
 export const listProjects = () => request<Project[]>('/projects')

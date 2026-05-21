@@ -2,8 +2,16 @@
 
 import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
-import { Shield, Plus, Trash2, Loader2 } from 'lucide-react'
-import { listProjectMembers, addProjectMember, removeProjectMember, listUsers, type User } from '@/lib/api'
+import { Shield, Plus, Trash2, Loader2, KeyRound, Copy, Check } from 'lucide-react'
+import {
+  listProjectMembers,
+  addProjectMember,
+  removeProjectMember,
+  listUsers,
+  impersonateUser,
+  type User,
+} from '@/lib/api'
+import Modal from '@/components/Modal'
 import Toast, { type ToastType } from '@/components/Toast'
 
 interface ToastState { message: string; type: ToastType; id: number }
@@ -17,6 +25,9 @@ export default function ProjectAuthPage() {
   const [selectedUserId, setSelectedUserId] = useState('')
   const [adding, setAdding] = useState(false)
   const [removing, setRemoving] = useState<string | null>(null)
+  const [minting, setMinting] = useState<string | null>(null)
+  const [token, setToken] = useState<{ user: User; access_token: string; expires_in: number } | null>(null)
+  const [copied, setCopied] = useState(false)
   const [toast, setToast] = useState<ToastState | null>(null)
 
   const showToast = (message: string, type: ToastType) =>
@@ -45,6 +56,26 @@ export default function ProjectAuthPage() {
     } finally {
       setAdding(false)
     }
+  }
+
+  const handleMint = async (member: User) => {
+    setMinting(member.id)
+    try {
+      const result = await impersonateUser(member.id, id)
+      setToken({ user: member, access_token: result.access_token, expires_in: result.expires_in })
+      setCopied(false)
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'Failed to mint token', 'error')
+    } finally {
+      setMinting(null)
+    }
+  }
+
+  const copyToken = async () => {
+    if (!token) return
+    await navigator.clipboard.writeText(token.access_token)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
   }
 
   const handleRemove = async (userId: string) => {
@@ -123,6 +154,19 @@ export default function ProjectAuthPage() {
                     member
                   </span>
                   <button
+                    onClick={() => handleMint(member)}
+                    disabled={minting === member.id}
+                    title="Generate user access token"
+                    className="p-1.5 rounded-lg transition-colors"
+                    style={{ color: 'var(--text-muted)' }}
+                    onMouseEnter={e => { e.currentTarget.style.color = 'var(--accent)' }}
+                    onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-muted)' }}
+                  >
+                    {minting === member.id
+                      ? <Loader2 size={14} className="animate-spin" />
+                      : <KeyRound size={14} />}
+                  </button>
+                  <button
                     onClick={() => handleRemove(member.id)}
                     disabled={removing === member.id}
                     className="p-1.5 rounded-lg transition-colors"
@@ -140,6 +184,51 @@ export default function ProjectAuthPage() {
           </div>
         )}
       </div>
+
+      <Modal
+        isOpen={token !== null}
+        title="User access token"
+        onClose={() => setToken(null)}
+      >
+        {token && (
+          <div className="space-y-4">
+            <div>
+              <p className="label mb-1">User</p>
+              <p className="text-sm" style={{ color: 'var(--text)' }}>{token.user.email}</p>
+            </div>
+            <div>
+              <p className="label mb-1">Access token (expires in {Math.round(token.expires_in / 60)} min)</p>
+              <div className="flex items-center gap-2">
+                <code
+                  className="flex-1 px-3 py-2 rounded-xl text-xs font-mono break-all"
+                  style={{
+                    backgroundColor: 'var(--bg)',
+                    border: '1px solid var(--border)',
+                    color: 'var(--text)',
+                    maxHeight: '120px',
+                    overflowY: 'auto',
+                  }}
+                >
+                  {token.access_token}
+                </code>
+                <button
+                  onClick={copyToken}
+                  className="p-2 rounded-xl shrink-0"
+                  style={{
+                    border: '1px solid var(--border)',
+                    color: copied ? 'var(--accent)' : 'var(--text-muted)',
+                  }}
+                >
+                  {copied ? <Check size={14} /> : <Copy size={14} />}
+                </button>
+              </div>
+            </div>
+            <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+              Use as the <code>Authorization: Bearer &lt;token&gt;</code> header. The token is scoped to this project — requests will route to its schema.
+            </p>
+          </div>
+        )}
+      </Modal>
 
       {toast && (
         <Toast key={toast.id} message={toast.message} type={toast.type} onDismiss={() => setToast(null)} />

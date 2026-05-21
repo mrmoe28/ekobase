@@ -234,27 +234,39 @@ app.delete<{ Params: { tenantId: string } }>(
   },
 );
 
-app.get<{ Params: { userId: string } }>(
+app.get<{ Params: { userId: string }; Querystring: { project_id?: string } }>(
   "/users/:userId/impersonate",
   async (request, reply) => {
     const { userId } = request.params;
+    const projectId = request.query.project_id;
     const user = request.user as AuthClaims;
-    
+
     const result = await pgClient.query<User>(
       "select id, email, created_at, updated_at from auth.users where id = $1",
       [userId],
     );
-    
+
     if (result.rows.length === 0) {
       return reply.code(404).send({ error: "User not found" });
     }
-    
+
     const targetUser = result.rows[0];
-    
+
+    if (projectId) {
+      const member = await pgClient.query(
+        "select 1 from admin.project_members where project_id = $1 and user_id = $2",
+        [projectId, userId],
+      );
+      if (member.rows.length === 0) {
+        return reply.code(403).send({ error: "User is not a member of this project" });
+      }
+    }
+
     const impersonationToken = await signProjectJwt({
       sub: targetUser.id,
       role: "authenticated",
       email: targetUser.email,
+      project_id: projectId,
       secret: DEFAULT_JWT_SECRET,
       expiresInSeconds: 3600,
     });
@@ -992,6 +1004,7 @@ async function signProjectJwt(options: {
   sub: string;
   role?: "anon" | "authenticated" | "service_role";
   email?: string;
+  project_id?: string;
   secret?: string;
   expiresInSeconds?: number;
 }) {
@@ -1002,6 +1015,7 @@ async function signProjectJwt(options: {
   return new SignJWT({
     role: options.role ?? "authenticated",
     email: options.email,
+    ...(options.project_id ? { project_id: options.project_id } : {}),
   })
     .setProtectedHeader({ alg: "HS256", typ: "JWT" })
     .setSubject(options.sub)

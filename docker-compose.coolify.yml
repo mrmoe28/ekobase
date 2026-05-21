@@ -151,6 +151,7 @@ services:
       target: admin-ui
     environment:
       GATEWAY_URL: ${GATEWAY_URL:-http://gateway:54321}
+      NEXT_PUBLIC_GATEWAY_URL: ${NEXT_PUBLIC_GATEWAY_URL:-https://supabase.ekodevops.com}
       PORT: "3000"
     ports:
       - "3000:3000"

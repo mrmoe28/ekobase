@@ -20,6 +20,8 @@ export default function ProjectOverviewPage() {
   const [copied, setCopied] = useState<string | null>(null)
 
   const projectSchema = 'proj_' + id.replace(/-/g, '').slice(0, 16)
+  const projectUrl =
+    process.env.NEXT_PUBLIC_GATEWAY_URL ?? 'https://supabase.ekodevops.com'
 
   useEffect(() => {
     getProjectKeys(id).then(setKeys).catch(() => {})
@@ -111,6 +113,32 @@ export default function ProjectOverviewPage() {
           API configuration
         </h2>
         <div className="space-y-3">
+          <div>
+            <p className="label mb-1">Project URL</p>
+            <div className="flex items-center gap-2">
+              <code
+                className="flex-1 px-3 py-2 rounded-xl text-xs font-mono truncate"
+                style={{
+                  backgroundColor: 'var(--bg)',
+                  border: '1px solid var(--border)',
+                  color: 'var(--text)',
+                }}
+              >
+                {projectUrl}
+              </code>
+              <button
+                onClick={() => copy(projectUrl, 'url')}
+                className="p-2 rounded-xl"
+                style={{
+                  border: '1px solid var(--border)',
+                  color: copied === 'url' ? 'var(--accent)' : 'var(--text-muted)',
+                }}
+              >
+                {copied === 'url' ? <Check size={14} /> : <Copy size={14} />}
+              </button>
+            </div>
+          </div>
+
           <div>
             <p className="label mb-1">Project schema</p>
             <div className="flex items-center gap-2">

@@ -386,7 +386,9 @@ await app.register(proxy, {
           const payload = JSON.parse(
             Buffer.from(auth.slice(7).split(".")[1], "base64url").toString()
           );
-          const projectId: string | undefined = payload.sub;
+          // Anon/service-role keys carry project_id in `sub`; user JWTs carry
+          // the user's id in `sub` and the project id in `project_id`.
+          const projectId: string | undefined = payload.project_id ?? payload.sub;
           if (projectId) {
             const schema = "proj_" + projectId.replace(/-/g, "").slice(0, 16);
             return { ...headers, "accept-profile": schema, "content-profile": schema };
