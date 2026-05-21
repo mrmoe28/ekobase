@@ -108,6 +108,8 @@ services:
       SUPABASE_URL: ${SUPABASE_URL:-https://supabase.ekodevops.com}
       SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY}
       SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+      # functions call back into the gateway internally to avoid Cloudflare loopback timeouts
+      EKOBASE_URL: ${EKOBASE_URL:-http://gateway:54321}
       # ── square-oauth ──
       SQUARE_APP_ID: ${SQUARE_APP_ID}
       SQUARE_APP_SECRET: ${SQUARE_APP_SECRET}
