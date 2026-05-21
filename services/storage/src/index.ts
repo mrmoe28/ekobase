@@ -57,7 +57,7 @@ function effectiveProjectId(claims: AuthClaims): string | null {
   return null;
 }
 
-const app = Fastify({ logger: true });
+const app = Fastify({ logger: true, bodyLimit: 50 * 1024 * 1024 });
 
 async function verifyJwt(token: string): Promise<AuthClaims | null> {
   try {
@@ -308,6 +308,11 @@ app.addContentTypeParser("application/json", { parseAs: "string" }, (request, bo
   } catch (error) {
     done(error as Error);
   }
+});
+
+// Accept any other content type (image/*, application/octet-stream, etc.) as a raw Buffer.
+app.addContentTypeParser("*", { parseAs: "buffer" }, (_request, body, done) => {
+  done(null, body);
 });
 
 app.get("/bucket", async (request, reply) => {
