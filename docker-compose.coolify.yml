@@ -157,6 +157,11 @@ services:
     networks:
       - coolify
     restart: unless-stopped
+    # Next.js (tokio signal handler) hits EACCES on socketpair() under the
+    # LXC's default AppArmor profile; unconfining this single container
+    # avoids the crash without weakening the rest of the stack.
+    security_opt:
+      - apparmor:unconfined
     depends_on:
       - gateway
     labels:
