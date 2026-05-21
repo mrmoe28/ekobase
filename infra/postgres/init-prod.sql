@@ -45,9 +45,11 @@ CREATE TABLE IF NOT EXISTS storage.buckets (
   name text NOT NULL UNIQUE,
   public boolean NOT NULL DEFAULT false,
   owner_id uuid REFERENCES auth.users(id) ON DELETE SET NULL,
+  private_user_scoped boolean NOT NULL DEFAULT false,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+ALTER TABLE storage.buckets ADD COLUMN IF NOT EXISTS private_user_scoped boolean NOT NULL DEFAULT false;
 
 -- storage.files
 CREATE TABLE IF NOT EXISTS storage.files (
@@ -80,6 +82,33 @@ CREATE TABLE IF NOT EXISTS admin.project_members (
   user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   created_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (project_id, user_id)
+);
+
+-- admin.edge_functions
+CREATE TABLE IF NOT EXISTS admin.edge_functions (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  project_id uuid NOT NULL REFERENCES admin.projects(id) ON DELETE CASCADE,
+  name text NOT NULL,
+  slug text NOT NULL,
+  status text NOT NULL DEFAULT 'draft'
+    CHECK (status IN ('draft', 'deployed', 'failed', 'disabled')),
+  entrypoint text NOT NULL DEFAULT 'index.ts',
+  verify_jwt boolean NOT NULL DEFAULT true,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (project_id, slug)
+);
+
+-- admin.edge_function_deployments
+CREATE TABLE IF NOT EXISTS admin.edge_function_deployments (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  function_id uuid NOT NULL REFERENCES admin.edge_functions(id) ON DELETE CASCADE,
+  version integer NOT NULL,
+  source text,
+  status text NOT NULL DEFAULT 'created'
+    CHECK (status IN ('created', 'deployed', 'failed')),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (function_id, version)
 );
 
 -- public.todos (example data)

@@ -35,7 +35,7 @@ services:
       PGRST_DB_URI: postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/postgres
       PGRST_DB_SCHEMAS: "public,proj_fbe4ecd703954909,proj_577e06dea1c54d2b,proj_f38f72738f4c46f0,proj_87a5f6af442e4231,proj_75ce0d135acd4740,proj_56f5a158d1fc4fac,proj_71a7261327154f3c,proj_781596e0441749e5,proj_239184b2523448a9"
       PGRST_DB_ANON_ROLE: postgres
-      PGRST_JWT_SECRET: ${JWT_SECRET:-local-dev-jwt-secret-change-me-at-least-32-chars}
+      PGRST_JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set to a strong random value}
     depends_on:
       postgres:
         condition: service_healthy
@@ -50,8 +50,9 @@ services:
       target: admin-service
     environment:
       DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/postgres
-      JWT_SECRET: ${JWT_SECRET:-local-dev-jwt-secret-change-me-at-least-32-chars}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set to a strong random value}
       ADMIN_PORT: "54325"
+      POSTGREST_DB_ROLE: postgres
     depends_on:
       postgres:
         condition: service_healthy
@@ -66,7 +67,7 @@ services:
       target: gateway
     environment:
       DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/postgres
-      JWT_SECRET: ${JWT_SECRET:-local-dev-jwt-secret-change-me-at-least-32-chars}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set to a strong random value}
       GATEWAY_PORT: "54321"
       POSTGREST_URL: http://postgrest:3000
       FUNCTIONS_URL: http://functions-runner:54322
@@ -99,7 +100,7 @@ services:
       target: functions-runner
     environment:
       DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/postgres
-      JWT_SECRET: ${JWT_SECRET:-local-dev-jwt-secret-change-me-at-least-32-chars}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set to a strong random value}
       FUNCTIONS_PORT: "54322"
       FUNCTIONS_DIR: /app/examples/functions
       # ── shared by all functions that call back into EkoBase ──
@@ -121,7 +122,7 @@ services:
       target: realtime
     environment:
       DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/postgres
-      JWT_SECRET: ${JWT_SECRET:-local-dev-jwt-secret-change-me-at-least-32-chars}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set to a strong random value}
       REALTIME_PORT: "54323"
     networks:
       - coolify
@@ -134,7 +135,7 @@ services:
       target: storage
     environment:
       DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/postgres
-      JWT_SECRET: ${JWT_SECRET:-local-dev-jwt-secret-change-me-at-least-32-chars}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set to a strong random value}
       STORAGE_PORT: "54324"
       STORAGE_DIR: /data/storage
     volumes:

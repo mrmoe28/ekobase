@@ -25,9 +25,15 @@ type Bucket = {
   name: string;
   public: boolean;
   owner_id: string;
+  private_user_scoped: boolean;
   created_at: Date;
   updated_at: Date;
 };
+
+function isUserScopedPathAllowed(path: string, userSub: string): boolean {
+  const firstSegment = path.split("/")[0] ?? "";
+  return firstSegment === userSub;
+}
 
 type FileMetadata = {
   id: string;
@@ -84,19 +90,20 @@ async function createBucket(
   name: string,
   publicAccess: boolean,
   ownerId: string,
+  privateUserScoped: boolean,
 ): Promise<Bucket> {
   const id = randomUUID();
   const bucketPath = getBucketPath(name);
-  
+
   if (!existsSync(bucketPath)) {
     mkdirSync(bucketPath, { recursive: true });
   }
 
   const result = await pgClient.query<Bucket>(
-    `insert into storage.buckets (id, name, public, owner_id)
-     values ($1, $2, $3, $4)
+    `insert into storage.buckets (id, name, public, owner_id, private_user_scoped)
+     values ($1, $2, $3, $4, $5)
      returning *`,
-    [id, name, publicAccess, ownerId],
+    [id, name, publicAccess, ownerId, privateUserScoped],
   );
 
   return result.rows[0];
@@ -261,16 +268,20 @@ app.get("/bucket", async (request, reply) => {
   return reply.send(buckets);
 });
 
-app.post<{ Body: { name: string; public: boolean } }>("/bucket", async (request, reply) => {
+app.post<{ Body: { name: string; public: boolean; private_user_scoped?: boolean } }>("/bucket", async (request, reply) => {
   const user = request.user as AuthClaims;
-  const { name, public: publicAccess } = request.body;
+  const { name, public: publicAccess, private_user_scoped } = request.body;
 
   if (!name) {
     return reply.code(400).send({ error: "Bucket name is required" });
   }
 
+  if (publicAccess && private_user_scoped) {
+    return reply.code(400).send({ error: "Cannot combine public with private_user_scoped" });
+  }
+
   try {
-    const bucket = await createBucket(name, publicAccess || false, user.sub);
+    const bucket = await createBucket(name, publicAccess || false, user.sub, private_user_scoped || false);
     return reply.code(201).send(bucket);
   } catch (error) {
     return reply.code(500).send({ error: "Failed to create bucket" });
@@ -301,7 +312,11 @@ app.get<{ Params: { bucketName: string } }>(
       return reply.code(404).send({ error: "Bucket not found" });
     }
 
-    if (!bucket.public && bucket.owner_id !== user.sub) {
+    if (bucket.private_user_scoped) {
+      if (user.role !== "service_role" && !isUserScopedPathAllowed(fileName, user.sub)) {
+        return reply.code(403).send({ error: "Access denied" });
+      }
+    } else if (!bucket.public && bucket.owner_id !== user.sub) {
       return reply.code(403).send({ error: "Access denied" });
     }
 
@@ -337,7 +352,11 @@ app.post<{ Params: { bucketName: string } }>(
       return reply.code(404).send({ error: "Bucket not found" });
     }
 
-    if (bucket.owner_id !== user.sub) {
+    if (bucket.private_user_scoped) {
+      if (user.role !== "service_role" && !isUserScopedPathAllowed(fileName, user.sub)) {
+        return reply.code(403).send({ error: "Access denied" });
+      }
+    } else if (bucket.owner_id !== user.sub) {
       return reply.code(403).send({ error: "Access denied" });
     }
 

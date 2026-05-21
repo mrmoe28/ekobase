@@ -108,6 +108,80 @@ export const addProjectMember = (projectId: string, user_id: string) =>
 export const removeProjectMember = (projectId: string, userId: string) =>
   request<object>(`/projects/${projectId}/members/${userId}`, { method: 'DELETE' })
 
+// Edge Functions
+export type EdgeFunctionStatus = 'draft' | 'deployed' | 'failed' | 'disabled'
+export type EdgeFunctionDeploymentStatus = 'created' | 'deployed' | 'failed'
+
+export type EdgeFunction = {
+  id: string
+  project_id: string
+  name: string
+  slug: string
+  status: EdgeFunctionStatus
+  entrypoint: string
+  verify_jwt: boolean
+  created_at: string
+  updated_at: string
+  latest_version: number | null
+  last_deployed_at: string | null
+}
+
+export type EdgeFunctionDeployment = {
+  id: string
+  function_id: string
+  version: number
+  source: string | null
+  status: EdgeFunctionDeploymentStatus
+  created_at: string
+}
+
+export const listEdgeFunctions = (projectId: string) =>
+  request<EdgeFunction[]>(`/projects/${projectId}/functions`)
+
+export const createEdgeFunction = (
+  projectId: string,
+  body: { name: string; slug?: string; entrypoint?: string; verify_jwt?: boolean },
+) =>
+  request<EdgeFunction>(`/projects/${projectId}/functions`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+
+export const getEdgeFunction = (projectId: string, functionId: string) =>
+  request<EdgeFunction>(`/projects/${projectId}/functions/${functionId}`)
+
+export const updateEdgeFunction = (
+  projectId: string,
+  functionId: string,
+  body: {
+    name?: string
+    slug?: string
+    entrypoint?: string
+    verify_jwt?: boolean
+    status?: EdgeFunctionStatus
+  },
+) =>
+  request<EdgeFunction>(`/projects/${projectId}/functions/${functionId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  })
+
+export const deleteEdgeFunction = (projectId: string, functionId: string) =>
+  request<object>(`/projects/${projectId}/functions/${functionId}`, { method: 'DELETE' })
+
+export const listEdgeFunctionDeployments = (projectId: string, functionId: string) =>
+  request<EdgeFunctionDeployment[]>(`/projects/${projectId}/functions/${functionId}/deployments`)
+
+export const createEdgeFunctionDeployment = (
+  projectId: string,
+  functionId: string,
+  body: { source?: string; status?: EdgeFunctionDeploymentStatus },
+) =>
+  request<EdgeFunctionDeployment>(`/projects/${projectId}/functions/${functionId}/deployments`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+
 // SQL + Schema
 export type QueryField = { name: string; dataTypeID: number }
 

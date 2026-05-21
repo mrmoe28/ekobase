@@ -1,12 +1,17 @@
 import { randomUUID, createHash } from "node:crypto";
+import { mkdir, writeFile } from "node:fs/promises";
+import path from "node:path";
 import Fastify from "fastify";
 import pg from "pg";
 import { jwtVerify } from "jose";
 import { DEFAULT_JWT_SECRET } from "@local/jwt";
 
+const functionsDir = process.env.FUNCTIONS_DIR ?? "/data/functions";
+
 const port = Number(process.env.ADMIN_PORT ?? 54325);
 const databaseUrl =
   process.env.DATABASE_URL ?? "postgres://postgres:postgres@localhost:5432/app";
+const postgrestDbRole = process.env.POSTGREST_DB_ROLE ?? "authenticator";
 
 const pgClient = new pg.Pool({ connectionString: databaseUrl });
 
@@ -15,6 +20,12 @@ type AuthClaims = {
   role: "anon" | "authenticated" | "service_role";
   email?: string;
 };
+
+declare module "fastify" {
+  interface FastifyRequest {
+    user?: AuthClaims;
+  }
+}
 
 type User = {
   id: string;
@@ -42,6 +53,29 @@ type Project = {
   schema_name: string | null;
   created_at: Date;
   updated_at: Date;
+};
+
+type EdgeFunction = {
+  id: string;
+  project_id: string;
+  name: string;
+  slug: string;
+  status: "draft" | "deployed" | "failed" | "disabled";
+  entrypoint: string;
+  verify_jwt: boolean;
+  created_at: Date;
+  updated_at: Date;
+  latest_version: number | null;
+  last_deployed_at: Date | null;
+};
+
+type EdgeFunctionDeployment = {
+  id: string;
+  function_id: string;
+  version: number;
+  source: string | null;
+  status: "created" | "deployed" | "failed";
+  created_at: Date;
 };
 
 const app = Fastify({ logger: true });
@@ -250,6 +284,27 @@ app.get("/projects", async (request, reply) => {
   return reply.send(result.rows);
 });
 
+async function refreshPostgrestSchemas(): Promise<void> {
+  if (!postgrestDbRole) {
+    return;
+  }
+
+  const result = await pgClient.query<{ schema_name: string }>(
+    "select schema_name from admin.projects where schema_name is not null order by created_at asc",
+  );
+  const schemas = ["public", ...result.rows.map(row => row.schema_name)];
+  const schemaList = schemas.join(",");
+
+  try {
+    await pgClient.query(
+      `alter role ${pg.escapeIdentifier(postgrestDbRole)} set pgrst.db_schemas = ${pg.escapeLiteral(schemaList)}`,
+    );
+    await pgClient.query("notify pgrst, 'reload config'");
+  } catch (error) {
+    app.log.warn({ error }, "failed to refresh PostgREST schema config");
+  }
+}
+
 async function provisionProjectSchema(projectId: string): Promise<string> {
   const schemaName = `proj_${projectId.replace(/-/g, "").slice(0, 16)}`;
   await pgClient.query(`create schema if not exists "${schemaName}"`);
@@ -262,6 +317,7 @@ async function provisionProjectSchema(projectId: string): Promise<string> {
     `update admin.projects set schema_name = $1 where id = $2`,
     [schemaName, projectId],
   );
+  await refreshPostgrestSchemas();
   return schemaName;
 }
 
@@ -419,6 +475,258 @@ app.delete<{ Params: { projectId: string; userId: string } }>(
   },
 );
 
+// ─── Edge Functions ──────────────────────────────────────────────────────────
+
+app.get<{ Params: { projectId: string } }>(
+  "/projects/:projectId/functions",
+  async (request, reply) => {
+    const { projectId } = request.params;
+    if (!(await projectExists(projectId))) {
+      return reply.code(404).send({ error: "Project not found" });
+    }
+
+    const result = await pgClient.query<EdgeFunction>(
+      `select
+         f.*,
+         d.version as latest_version,
+         d.created_at as last_deployed_at
+       from admin.edge_functions f
+       left join lateral (
+         select version, created_at
+         from admin.edge_function_deployments
+         where function_id = f.id
+         order by version desc
+         limit 1
+       ) d on true
+       where f.project_id = $1
+       order by f.updated_at desc`,
+      [projectId],
+    );
+
+    return reply.send(result.rows);
+  },
+);
+
+app.post<{
+  Params: { projectId: string };
+  Body: { name?: string; slug?: string; entrypoint?: string; verify_jwt?: boolean };
+}>(
+  "/projects/:projectId/functions",
+  async (request, reply) => {
+    const { projectId } = request.params;
+    const { name, slug, entrypoint, verify_jwt } = request.body ?? {};
+
+    if (!(await projectExists(projectId))) {
+      return reply.code(404).send({ error: "Project not found" });
+    }
+    if (!name?.trim()) {
+      return reply.code(400).send({ error: "Function name is required" });
+    }
+
+    const normalizedSlug = (slug?.trim() || toFunctionSlug(name)).toLowerCase();
+    if (!isValidFunctionSlug(normalizedSlug)) {
+      return reply.code(400).send({ error: "Function slug must use lowercase letters, numbers, dashes, or underscores" });
+    }
+
+    try {
+      const result = await pgClient.query<EdgeFunction>(
+        `insert into admin.edge_functions (project_id, name, slug, entrypoint, verify_jwt)
+         values ($1, $2, $3, $4, $5)
+         returning *, null::int as latest_version, null::timestamptz as last_deployed_at`,
+        [
+          projectId,
+          name.trim(),
+          normalizedSlug,
+          entrypoint?.trim() || "index.ts",
+          verify_jwt ?? true,
+        ],
+      );
+      return reply.code(201).send(result.rows[0]);
+    } catch (error) {
+      if ((error as { code?: string }).code === "23505") {
+        return reply.code(409).send({ error: "Function slug already exists in this project" });
+      }
+      request.log.error(error);
+      return reply.code(500).send({ error: "Failed to create function" });
+    }
+  },
+);
+
+app.get<{ Params: { projectId: string; functionId: string } }>(
+  "/projects/:projectId/functions/:functionId",
+  async (request, reply) => {
+    const { projectId, functionId } = request.params;
+    const result = await pgClient.query<EdgeFunction>(
+      `select
+         f.*,
+         d.version as latest_version,
+         d.created_at as last_deployed_at
+       from admin.edge_functions f
+       left join lateral (
+         select version, created_at
+         from admin.edge_function_deployments
+         where function_id = f.id
+         order by version desc
+         limit 1
+       ) d on true
+       where f.project_id = $1 and f.id = $2`,
+      [projectId, functionId],
+    );
+
+    if (result.rows.length === 0) {
+      return reply.code(404).send({ error: "Function not found" });
+    }
+    return reply.send(result.rows[0]);
+  },
+);
+
+app.patch<{
+  Params: { projectId: string; functionId: string };
+  Body: { name?: string; slug?: string; entrypoint?: string; verify_jwt?: boolean; status?: EdgeFunction["status"] };
+}>(
+  "/projects/:projectId/functions/:functionId",
+  async (request, reply) => {
+    const { projectId, functionId } = request.params;
+    const { name, slug, entrypoint, verify_jwt, status } = request.body ?? {};
+
+    if (slug !== undefined && !isValidFunctionSlug(slug.trim().toLowerCase())) {
+      return reply.code(400).send({ error: "Function slug must use lowercase letters, numbers, dashes, or underscores" });
+    }
+    if (status !== undefined && !["draft", "deployed", "failed", "disabled"].includes(status)) {
+      return reply.code(400).send({ error: "Invalid function status" });
+    }
+
+    try {
+      const result = await pgClient.query<EdgeFunction>(
+        `update admin.edge_functions set
+           name       = coalesce($1, name),
+           slug       = coalesce($2, slug),
+           entrypoint = coalesce($3, entrypoint),
+           verify_jwt = coalesce($4::boolean, verify_jwt),
+           status     = coalesce($5, status),
+           updated_at = now()
+         where project_id = $6 and id = $7
+         returning *, null::int as latest_version, null::timestamptz as last_deployed_at`,
+        [
+          name?.trim() || null,
+          slug?.trim().toLowerCase() || null,
+          entrypoint?.trim() || null,
+          verify_jwt ?? null,
+          status ?? null,
+          projectId,
+          functionId,
+        ],
+      );
+
+      if (result.rows.length === 0) {
+        return reply.code(404).send({ error: "Function not found" });
+      }
+      return reply.send(result.rows[0]);
+    } catch (error) {
+      if ((error as { code?: string }).code === "23505") {
+        return reply.code(409).send({ error: "Function slug already exists in this project" });
+      }
+      request.log.error(error);
+      return reply.code(500).send({ error: "Failed to update function" });
+    }
+  },
+);
+
+app.delete<{ Params: { projectId: string; functionId: string } }>(
+  "/projects/:projectId/functions/:functionId",
+  async (request, reply) => {
+    const { projectId, functionId } = request.params;
+    const result = await pgClient.query(
+      "delete from admin.edge_functions where project_id = $1 and id = $2 returning id",
+      [projectId, functionId],
+    );
+    if (result.rows.length === 0) {
+      return reply.code(404).send({ error: "Function not found" });
+    }
+    return reply.code(204).send();
+  },
+);
+
+app.get<{ Params: { projectId: string; functionId: string } }>(
+  "/projects/:projectId/functions/:functionId/deployments",
+  async (request, reply) => {
+    const { projectId, functionId } = request.params;
+    const result = await pgClient.query<EdgeFunctionDeployment>(
+      `select d.*
+       from admin.edge_function_deployments d
+       join admin.edge_functions f on f.id = d.function_id
+       where f.project_id = $1 and f.id = $2
+       order by d.version desc`,
+      [projectId, functionId],
+    );
+    return reply.send(result.rows);
+  },
+);
+
+app.post<{
+  Params: { projectId: string; functionId: string };
+  Body: { source?: string; status?: EdgeFunctionDeployment["status"] };
+}>(
+  "/projects/:projectId/functions/:functionId/deployments",
+  async (request, reply) => {
+    const { projectId, functionId } = request.params;
+    const { source, status } = request.body ?? {};
+    const deploymentStatus = status ?? "created";
+
+    if (!["created", "deployed", "failed"].includes(deploymentStatus)) {
+      return reply.code(400).send({ error: "Invalid deployment status" });
+    }
+
+    try {
+      const result = await pgClient.query<EdgeFunctionDeployment>(
+        `with next_version as (
+           select coalesce(max(d.version), 0) + 1 as version
+           from admin.edge_function_deployments d
+           join admin.edge_functions f on f.id = d.function_id
+           where f.project_id = $1 and f.id = $2
+         )
+         insert into admin.edge_function_deployments (function_id, version, source, status)
+         select $2, version, $3, $4 from next_version
+         where exists (
+           select 1 from admin.edge_functions where project_id = $1 and id = $2
+         )
+         returning *`,
+        [projectId, functionId, source ?? null, deploymentStatus],
+      );
+
+      if (result.rows.length === 0) {
+        return reply.code(404).send({ error: "Function not found" });
+      }
+
+      if (deploymentStatus === "deployed") {
+        if (!source) {
+          return reply.code(400).send({ error: "source is required for deployed status" });
+        }
+        const fnRow = await pgClient.query<{ slug: string }>(
+          "select slug from admin.edge_functions where id = $1",
+          [functionId],
+        );
+        const slug = fnRow.rows[0]?.slug;
+        if (!slug) {
+          return reply.code(404).send({ error: "Function not found" });
+        }
+        const fnDir = path.join(functionsDir, projectId, slug);
+        await mkdir(fnDir, { recursive: true });
+        await writeFile(path.join(fnDir, "index.ts"), source, "utf8");
+        await pgClient.query(
+          "update admin.edge_functions set status = 'deployed', updated_at = now() where id = $1",
+          [functionId],
+        );
+      }
+
+      return reply.code(201).send(result.rows[0]);
+    } catch (error) {
+      request.log.error(error);
+      return reply.code(500).send({ error: "Failed to create deployment" });
+    }
+  },
+);
+
 // ─── SQL execution ────────────────────────────────────────────────────────────
 
 app.post<{ Body: { query?: string } }>(
@@ -493,6 +801,24 @@ app.get("/schema/tables", async (_request, reply) => {
 
 function isValidIdentifier(s: string): boolean {
   return /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(s);
+}
+
+function isValidFunctionSlug(s: string): boolean {
+  return /^[a-z0-9][a-z0-9_-]{0,62}$/.test(s);
+}
+
+function toFunctionSlug(name: string): string {
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 63);
+}
+
+async function projectExists(projectId: string): Promise<boolean> {
+  const result = await pgClient.query("select 1 from admin.projects where id = $1", [projectId]);
+  return result.rows.length > 0;
 }
 
 app.get<{
@@ -733,10 +1059,12 @@ async function initSchema() {
       name text not null unique,
       public boolean not null default false,
       owner_id uuid references auth.users(id) on delete set null,
+      private_user_scoped boolean not null default false,
       created_at timestamptz not null default now(),
       updated_at timestamptz not null default now()
     )
   `);
+  await pgClient.query(`alter table storage.buckets add column if not exists private_user_scoped boolean not null default false`);
   await pgClient.query(`
     create table if not exists storage.files (
       id uuid primary key default gen_random_uuid(),
@@ -813,6 +1141,35 @@ async function initSchema() {
   await pgClient.query(`alter table admin.projects add column if not exists supabase_ref text unique`);
   await pgClient.query(`alter table admin.projects add column if not exists schema_name text unique`);
 
+  // edge function metadata
+  await pgClient.query(`
+    create table if not exists admin.edge_functions (
+      id uuid primary key default gen_random_uuid(),
+      project_id uuid not null references admin.projects(id) on delete cascade,
+      name text not null,
+      slug text not null,
+      status text not null default 'draft'
+        check (status in ('draft', 'deployed', 'failed', 'disabled')),
+      entrypoint text not null default 'index.ts',
+      verify_jwt boolean not null default true,
+      created_at timestamptz not null default now(),
+      updated_at timestamptz not null default now(),
+      unique (project_id, slug)
+    )
+  `);
+  await pgClient.query(`
+    create table if not exists admin.edge_function_deployments (
+      id uuid primary key default gen_random_uuid(),
+      function_id uuid not null references admin.edge_functions(id) on delete cascade,
+      version integer not null,
+      source text,
+      status text not null default 'created'
+        check (status in ('created', 'deployed', 'failed')),
+      created_at timestamptz not null default now(),
+      unique (function_id, version)
+    )
+  `);
+
   // per-project isolation columns
   await pgClient.query(`alter table auth.users add column if not exists project_id uuid references admin.projects(id) on delete set null`);
   await pgClient.query(`alter table storage.buckets add column if not exists project_id uuid references admin.projects(id) on delete set null`);
@@ -832,6 +1189,7 @@ async function initSchema() {
 async function main() {
   console.log(`Initializing database schema...`);
   await initSchema();
+  await refreshPostgrestSchemas();
   console.log(`Schema ready. Starting admin service on port ${port}`);
   await app.listen({ host: "0.0.0.0", port });
   console.log(`Admin service listening on port ${port}`);

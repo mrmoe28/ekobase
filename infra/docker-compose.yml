@@ -22,12 +22,127 @@ services:
       - "3100:3000"
     environment:
       PGRST_DB_URI: postgres://authenticator:authenticator@postgres:5432/app
-      PGRST_DB_SCHEMAS: public
+      PGRST_DB_SCHEMAS: ${POSTGREST_SCHEMAS:-public,proj_7fd102a0594b4332,proj_c7d9f52684264b50,proj_8afa025d450d4ec8,proj_b7540fd7fe524476,proj_9c3d71676c294f76,proj_e64c12b315a9471d,proj_d9ad70a04a754f87,proj_1fc59d17e3904f3f,proj_d96a515c605c4650,proj_c04a58d218b14b4b}
       PGRST_DB_ANON_ROLE: anon
-      PGRST_JWT_SECRET: local-dev-jwt-secret-change-me-at-least-32-chars
+      PGRST_JWT_SECRET: ${JWT_SECRET:-local-dev-jwt-secret-change-me-at-least-32-chars}
     depends_on:
       postgres:
         condition: service_healthy
 
+  admin-service:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      target: admin-service
+    ports:
+      - "54325:54325"
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/app
+      JWT_SECRET: ${JWT_SECRET:-local-dev-jwt-secret-change-me-at-least-32-chars}
+      ADMIN_PORT: "54325"
+      POSTGREST_DB_ROLE: authenticator
+    volumes:
+      - functions-data:/data/functions
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  gateway:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      target: gateway
+    ports:
+      - "54321:54321"
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/app
+      JWT_SECRET: ${JWT_SECRET:-local-dev-jwt-secret-change-me-at-least-32-chars}
+      GATEWAY_PORT: "54321"
+      POSTGREST_URL: http://postgrest:3000
+      FUNCTIONS_URL: http://functions-runner:54322
+      REALTIME_URL: http://realtime:54323
+      STORAGE_URL: http://storage:54324
+      ADMIN_URL: http://admin-service:54325
+    depends_on:
+      postgres:
+        condition: service_healthy
+      postgrest:
+        condition: service_started
+      admin-service:
+        condition: service_started
+
+  functions-runner:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      target: functions-runner
+    ports:
+      - "54322:54322"
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/app
+      JWT_SECRET: ${JWT_SECRET:-local-dev-jwt-secret-change-me-at-least-32-chars}
+      FUNCTIONS_PORT: "54322"
+      FUNCTIONS_DIR: /data/functions
+      SUPABASE_URL: ${SUPABASE_URL:-http://gateway:54321}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
+      SQUARE_APP_ID: ${SQUARE_APP_ID:-}
+      SQUARE_APP_SECRET: ${SQUARE_APP_SECRET:-}
+      SQUARE_ENVIRONMENT: ${SQUARE_ENVIRONMENT:-sandbox}
+      APP_URL: ${APP_URL:-http://localhost:3000}
+    volumes:
+      - functions-data:/data/functions
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  realtime:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      target: realtime
+    ports:
+      - "54323:54323"
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/app
+      JWT_SECRET: ${JWT_SECRET:-local-dev-jwt-secret-change-me-at-least-32-chars}
+      REALTIME_PORT: "54323"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  storage:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      target: storage
+    ports:
+      - "54324:54324"
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/app
+      JWT_SECRET: ${JWT_SECRET:-local-dev-jwt-secret-change-me-at-least-32-chars}
+      STORAGE_PORT: "54324"
+      STORAGE_DIR: /data/storage
+    volumes:
+      - storage-data:/data/storage
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  admin-ui:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      target: admin-ui
+    ports:
+      - "3000:3000"
+    environment:
+      GATEWAY_URL: http://gateway:54321
+      PORT: "3000"
+    depends_on:
+      gateway:
+        condition: service_started
+
 volumes:
   postgres-data:
+  storage-data:
+  functions-data:
