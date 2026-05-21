@@ -21,6 +21,7 @@ services:
     networks:
       - coolify
     restart: unless-stopped
+    init: true
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -h localhost"]
       interval: 10s
@@ -42,6 +43,7 @@ services:
     networks:
       - coolify
     restart: unless-stopped
+    init: true
 
   # ─── Admin service (also runs DB schema init on startup) ─────────────────────
   admin-service:
@@ -60,6 +62,7 @@ services:
     networks:
       - coolify
     restart: unless-stopped
+    init: true
 
   # ─── Gateway ────────────────────────────────────────────────────────────────
   gateway:
@@ -83,6 +86,7 @@ services:
     networks:
       - coolify
     restart: unless-stopped
+    init: true
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.supabase-clone-gateway-http.rule=Host(`supabase.ekodevops.com`) && (PathPrefix(`/rest`) || PathPrefix(`/auth`) || PathPrefix(`/storage`) || PathPrefix(`/realtime`) || PathPrefix(`/functions`) || PathPrefix(`/admin`))"
@@ -121,6 +125,7 @@ services:
     networks:
       - coolify
     restart: unless-stopped
+    init: true
 
   # ─── Realtime ────────────────────────────────────────────────────────────────
   realtime:
@@ -134,6 +139,7 @@ services:
     networks:
       - coolify
     restart: unless-stopped
+    init: true
 
   # ─── Storage ─────────────────────────────────────────────────────────────────
   storage:
@@ -150,6 +156,7 @@ services:
     networks:
       - coolify
     restart: unless-stopped
+    init: true
 
   # ─── Admin UI ─────────────────────────────────────────────────────────────────
   admin-ui:
@@ -165,6 +172,7 @@ services:
     networks:
       - coolify
     restart: unless-stopped
+    init: true
     depends_on:
       - gateway
     labels:
