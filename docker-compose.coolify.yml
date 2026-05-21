@@ -106,6 +106,7 @@ services:
       FUNCTIONS_DIR: /app/examples/functions
       # ── shared by all functions that call back into EkoBase ──
       SUPABASE_URL: ${SUPABASE_URL:-https://supabase.ekodevops.com}
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY}
       SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
       # ── square-oauth ──
       SQUARE_APP_ID: ${SQUARE_APP_ID}
