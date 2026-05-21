@@ -1,6 +1,6 @@
 'use client'
 
-import { Github, Triangle, ExternalLink } from 'lucide-react'
+import { Github } from 'lucide-react'
 
 function IntegrationSection({
   title,
@@ -51,93 +51,26 @@ function IntegrationSection({
   )
 }
 
-function ConnectButton({ label, onClick }: { label: string; onClick?: () => void }) {
+function ConnectButton({ label }: { label: string }) {
   return (
     <div
-      className="rounded-xl p-4 flex items-center justify-end"
+      className="rounded-xl p-4 flex items-center justify-between"
       style={{ backgroundColor: 'var(--surface)', border: '1px solid var(--border)' }}
     >
+      <span className="text-xs uppercase tracking-wide" style={{ color: 'var(--text-muted)' }}>
+        Coming soon
+      </span>
       <button
-        onClick={onClick}
-        className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors duration-150"
+        disabled
+        className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium cursor-not-allowed opacity-50"
         style={{
           backgroundColor: 'var(--bg)',
           border: '1px solid var(--border)',
-          color: 'var(--text)',
-        }}
-        onMouseEnter={e => {
-          e.currentTarget.style.borderColor = 'var(--text-muted)'
-        }}
-        onMouseLeave={e => {
-          e.currentTarget.style.borderColor = 'var(--border)'
+          color: 'var(--text-muted)',
         }}
       >
         {label}
       </button>
-    </div>
-  )
-}
-
-function TeamRow({
-  name,
-  meta,
-  badge,
-  connections,
-}: {
-  name: string
-  meta: string
-  badge?: string
-  connections: number
-}) {
-  return (
-    <div
-      className="rounded-xl p-4 space-y-3"
-      style={{ backgroundColor: 'var(--surface)', border: '1px solid var(--border)' }}
-    >
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div
-            className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold"
-            style={{ backgroundColor: 'color-mix(in srgb, var(--accent) 20%, transparent)', color: 'var(--accent)' }}
-          >
-            {name.charAt(0).toUpperCase()}
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-medium" style={{ color: 'var(--text)' }}>{name}</span>
-              {badge && (
-                <span
-                  className="text-xs px-1.5 py-0.5 rounded font-medium uppercase tracking-wide"
-                  style={{
-                    backgroundColor: 'color-mix(in srgb, var(--text-muted) 15%, transparent)',
-                    color: 'var(--text-muted)',
-                    fontSize: '10px',
-                  }}
-                >
-                  {badge}
-                </span>
-              )}
-            </div>
-            <p className="text-xs" style={{ color: 'var(--text-muted)' }}>{meta}</p>
-          </div>
-        </div>
-        <button
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors duration-150"
-          style={{ backgroundColor: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text-muted)' }}
-          onMouseEnter={e => { e.currentTarget.style.color = 'var(--text)' }}
-          onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-muted)' }}
-        >
-          Manage <ExternalLink size={12} />
-        </button>
-      </div>
-      <div className="pt-1" style={{ borderTop: '1px solid var(--border)' }}>
-        <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-          {connections} project connection{connections !== 1 ? 's' : ''}
-        </p>
-        <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
-          Repository connections for {name.split('-')[0]}
-        </p>
-      </div>
     </div>
   )
 }
@@ -157,15 +90,7 @@ export default function IntegrationsPage() {
       >
         <ConnectButton label="Add new project connection" />
         <p className="text-xs px-1" style={{ color: 'var(--text-muted)' }}>
-          Connect a GitHub account to enable repository integrations.{' '}
-          <button
-            className="underline transition-colors duration-150"
-            style={{ color: 'var(--accent)' }}
-            onMouseEnter={e => { e.currentTarget.style.opacity = '0.75' }}
-            onMouseLeave={e => { e.currentTarget.style.opacity = '1' }}
-          >
-            Configure GitHub App
-          </button>
+          GitHub integration is not yet implemented.
         </p>
       </IntegrationSection>
 
@@ -181,13 +106,10 @@ export default function IntegrationsPage() {
         howTitle="How does the Vercel integration work?"
         howText="The integration will keep your environment variables up to date in each project you assign. You can also link multiple Vercel projects to the same project."
       >
-        <TeamRow
-          name="eko-app-development"
-          meta="Added by ekosolarize@gmail.com"
-          badge="TEAM"
-          connections={0}
-        />
         <ConnectButton label="Add new project connection" />
+        <p className="text-xs px-1" style={{ color: 'var(--text-muted)' }}>
+          Vercel integration is not yet implemented.
+        </p>
       </IntegrationSection>
 
       {/* Bottom padding */}
