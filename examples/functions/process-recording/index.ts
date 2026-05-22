@@ -5,7 +5,7 @@ import { extractActionItems, summarizeTranscript, transcribeAudio } from "../_sh
 export async function handler(req: any) {
   if (req.method !== "POST") return badRequest("POST required");
 
-  const serviceKey = process.env.EKOBASE_SERVICE_ROLE_KEY ?? process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const serviceKey = process.env.EKOBASE_SERVICE_ROLE_KEY;
   if (!serviceKey) return serverError("Service role key not configured");
 
   const callerToken = bearerToken(req.headers);

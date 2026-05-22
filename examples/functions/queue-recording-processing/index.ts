@@ -41,8 +41,8 @@ export async function handler(req: any) {
 
   if (updateError) return serverError("Failed to queue recording", updateError.message);
 
-  const invokeBase = process.env.EKOBASE_URL ?? process.env.SUPABASE_URL;
-  const serviceKey = process.env.EKOBASE_SERVICE_ROLE_KEY ?? process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const invokeBase = process.env.EKOBASE_URL;
+  const serviceKey = process.env.EKOBASE_SERVICE_ROLE_KEY;
   if (invokeBase && serviceKey) {
     void fetch(`${invokeBase}/functions/v1/process-recording`, {
       method: "POST",

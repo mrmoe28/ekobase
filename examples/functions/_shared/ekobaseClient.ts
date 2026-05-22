@@ -1,10 +1,9 @@
 import { createClient } from "@supabase/supabase-js";
 import { bearerToken, type HandlerRequest } from "./http.ts";
 
-const EKOBASE_URL = process.env.EKOBASE_URL ?? process.env.SUPABASE_URL;
-const EKOBASE_ANON_KEY = process.env.EKOBASE_ANON_KEY ?? process.env.SUPABASE_ANON_KEY;
-const EKOBASE_SERVICE_ROLE_KEY =
-  process.env.EKOBASE_SERVICE_ROLE_KEY ?? process.env.SUPABASE_SERVICE_ROLE_KEY;
+const EKOBASE_URL = process.env.EKOBASE_URL;
+const EKOBASE_ANON_KEY = process.env.EKOBASE_ANON_KEY;
+const EKOBASE_SERVICE_ROLE_KEY = process.env.EKOBASE_SERVICE_ROLE_KEY;
 
 export function userClient(req: HandlerRequest) {
   if (!EKOBASE_URL || !EKOBASE_ANON_KEY) {
