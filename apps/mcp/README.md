@@ -65,7 +65,7 @@ Add an entry to `~/.claude.json` (or a per-project `.mcp.json`):
       "command": "node",
       "args": [
         "--experimental-strip-types",
-        "/home/mrmoe28/Project X/Supabase Clone/apps/mcp/src/index.ts"
+        "/home/mrmoe28/Project X/Ekobase/apps/mcp/src/index.ts"
       ],
       "env": {
         "EKOBASE_URL": "https://supabase.ekodevops.com",

@@ -4,7 +4,7 @@ import './globals.css'
 
 export const metadata: Metadata = {
   title: 'Admin Dashboard',
-  description: 'Supabase Clone Admin Dashboard',
+  description: 'Ekobase Admin Dashboard',
 }
 
 export default function RootLayout({

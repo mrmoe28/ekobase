@@ -89,14 +89,14 @@ services:
     init: true
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.supabase-clone-gateway-http.rule=Host(`supabase.ekodevops.com`) && (PathPrefix(`/rest`) || PathPrefix(`/auth`) || PathPrefix(`/storage`) || PathPrefix(`/realtime`) || PathPrefix(`/functions`) || PathPrefix(`/admin`))"
-      - "traefik.http.routers.supabase-clone-gateway-http.entryPoints=http"
-      - "traefik.http.routers.supabase-clone-gateway-http.service=supabase-clone-gateway"
-      - "traefik.http.routers.supabase-clone-gateway-https.rule=Host(`supabase.ekodevops.com`) && (PathPrefix(`/rest`) || PathPrefix(`/auth`) || PathPrefix(`/storage`) || PathPrefix(`/realtime`) || PathPrefix(`/functions`) || PathPrefix(`/admin`))"
-      - "traefik.http.routers.supabase-clone-gateway-https.entryPoints=https"
-      - "traefik.http.routers.supabase-clone-gateway-https.tls=true"
-      - "traefik.http.routers.supabase-clone-gateway-https.service=supabase-clone-gateway"
-      - "traefik.http.services.supabase-clone-gateway.loadbalancer.server.port=54321"
+      - "traefik.http.routers.ekobase-gateway-http.rule=Host(`supabase.ekodevops.com`) && (PathPrefix(`/rest`) || PathPrefix(`/auth`) || PathPrefix(`/storage`) || PathPrefix(`/realtime`) || PathPrefix(`/functions`) || PathPrefix(`/admin`))"
+      - "traefik.http.routers.ekobase-gateway-http.entryPoints=http"
+      - "traefik.http.routers.ekobase-gateway-http.service=ekobase-gateway"
+      - "traefik.http.routers.ekobase-gateway-https.rule=Host(`supabase.ekodevops.com`) && (PathPrefix(`/rest`) || PathPrefix(`/auth`) || PathPrefix(`/storage`) || PathPrefix(`/realtime`) || PathPrefix(`/functions`) || PathPrefix(`/admin`))"
+      - "traefik.http.routers.ekobase-gateway-https.entryPoints=https"
+      - "traefik.http.routers.ekobase-gateway-https.tls=true"
+      - "traefik.http.routers.ekobase-gateway-https.service=ekobase-gateway"
+      - "traefik.http.services.ekobase-gateway.loadbalancer.server.port=54321"
 
   # ─── Functions runner ────────────────────────────────────────────────────────
   functions-runner:
@@ -183,13 +183,13 @@ services:
       - gateway
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.supabase-clone-adminui-http.rule=Host(`admin.supabase.ekodevops.com`)"
-      - "traefik.http.routers.supabase-clone-adminui-http.entryPoints=http"
-      - "traefik.http.routers.supabase-clone-adminui-http.service=supabase-clone-adminui"
-      - "traefik.http.routers.supabase-clone-adminui-http.priority=200"
-      - "traefik.http.routers.supabase-clone-adminui-https.rule=Host(`admin.supabase.ekodevops.com`)"
-      - "traefik.http.routers.supabase-clone-adminui-https.entryPoints=https"
-      - "traefik.http.routers.supabase-clone-adminui-https.tls=true"
-      - "traefik.http.routers.supabase-clone-adminui-https.service=supabase-clone-adminui"
-      - "traefik.http.routers.supabase-clone-adminui-https.priority=200"
-      - "traefik.http.services.supabase-clone-adminui.loadbalancer.server.port=3000"
+      - "traefik.http.routers.ekobase-adminui-http.rule=Host(`admin.supabase.ekodevops.com`)"
+      - "traefik.http.routers.ekobase-adminui-http.entryPoints=http"
+      - "traefik.http.routers.ekobase-adminui-http.service=ekobase-adminui"
+      - "traefik.http.routers.ekobase-adminui-http.priority=200"
+      - "traefik.http.routers.ekobase-adminui-https.rule=Host(`admin.supabase.ekodevops.com`)"
+      - "traefik.http.routers.ekobase-adminui-https.entryPoints=https"
+      - "traefik.http.routers.ekobase-adminui-https.tls=true"
+      - "traefik.http.routers.ekobase-adminui-https.service=ekobase-adminui"
+      - "traefik.http.routers.ekobase-adminui-https.priority=200"
+      - "traefik.http.services.ekobase-adminui.loadbalancer.server.port=3000"

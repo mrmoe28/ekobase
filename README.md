@@ -1,4 +1,4 @@
-# Supabase Clone
+# Ekobase
 
 A small self-hosted Supabase-compatible slice for local development:
 
