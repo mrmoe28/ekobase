@@ -141,6 +141,8 @@ export async function handler(req: any) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return serverError("ANTHROPIC_API_KEY is not set");
 
+  const save = (body as Record<string, unknown>).save === true;
+
   const system = [
     "You produce strategic rollups across multiple business recordings (calls, meetings, voice notes, site visits) over a date range.",
     "Look across all the entries and identify the patterns that matter for the listener's day-to-day work going forward.",
@@ -150,15 +152,25 @@ export async function handler(req: any) {
   const scopeLine = useIds
     ? `Selected ${recordingsList.length} recording(s) by id.`
     : `Date range: ${fromDate} to ${toDate} (${recordingsList.length} recordings).`;
-  const user = [
-    scopeLine,
-    "",
-    "Return a single JSON object with exactly these fields:",
+  const baseFields = [
     "- headline: string (1 punchy sentence — the most important takeaway across all recordings)",
     "- themes: string[] (3-6 recurring themes or topics that surfaced across multiple recordings)",
     "- recurring_promises: string[] (commitments that appear in more than one recording, or that the listener kept echoing back)",
     "- weekly_plays: string[] (3-5 concrete imperative actions for the upcoming week, derived from patterns across recordings — not just from any single one)",
     "- observations: string[] (2-4 sharp observations about what is shifting, working, or breaking — what would be lost if this rollup didn't exist)",
+  ];
+  const saveFields = save
+    ? [
+        "- title: string (4-8 words — a concrete, scannable title for this rollup, like a doc title not a sentence)",
+        "- category: string (one of: customer_relations, equipment_issues, sales_pipeline, team_ops, compliance, field_work, other — pick the single best fit)",
+      ]
+    : [];
+  const user = [
+    scopeLine,
+    "",
+    "Return a single JSON object with exactly these fields:",
+    ...baseFields,
+    ...saveFields,
     "",
     "Recordings (compact):",
     JSON.stringify(compact),
@@ -195,16 +207,62 @@ export async function handler(req: any) {
     return serverError("Failed to parse rollup JSON", (err as Error).message);
   }
 
+  const ALLOWED_CATEGORIES = new Set([
+    "customer_relations",
+    "equipment_issues",
+    "sales_pipeline",
+    "team_ops",
+    "compliance",
+    "field_work",
+    "other",
+  ]);
+
+  const headline = typeof rollup.headline === "string" ? rollup.headline : "";
+  const themes = asStringArray(rollup.themes, 6);
+  const recurringPromises = asStringArray(rollup.recurring_promises, 6);
+  const weeklyPlays = asStringArray(rollup.weekly_plays, 5);
+  const observations = asStringArray(rollup.observations, 4);
+  const suggestedTitle = typeof rollup.title === "string" ? rollup.title.trim().slice(0, 200) : "";
+  const rawCategory = typeof rollup.category === "string" ? rollup.category.trim().toLowerCase() : "";
+  const category = ALLOWED_CATEGORIES.has(rawCategory) ? rawCategory : "other";
+
+  let savedId: string | null = null;
+  if (save) {
+    const { data: inserted, error: insertErr } = await auth.client
+      .from("strategy_rollups")
+      .insert({
+        user_id: auth.user.id,
+        title: suggestedTitle || null,
+        category,
+        scope_type: useIds ? "recording_ids" : "date_range",
+        scope_from: useIds ? null : fromDate,
+        scope_to: useIds ? null : toDate,
+        recording_ids: useIds ? rawIds : null,
+        recording_count: recordingsList.length,
+        headline,
+        themes,
+        recurring_promises: recurringPromises,
+        weekly_plays: weeklyPlays,
+        observations,
+      })
+      .select("id")
+      .single();
+    if (insertErr) return serverError("Failed to save rollup", insertErr.message);
+    savedId = inserted?.id ?? null;
+  }
+
   return json(200, {
     from: fromDate,
     to: toDate,
     recording_count: recordingsList.length,
+    saved_rollup_id: savedId,
     rollup: {
-      headline: typeof rollup.headline === "string" ? rollup.headline : "",
-      themes: asStringArray(rollup.themes, 6),
-      recurring_promises: asStringArray(rollup.recurring_promises, 6),
-      weekly_plays: asStringArray(rollup.weekly_plays, 5),
-      observations: asStringArray(rollup.observations, 4),
+      headline,
+      themes,
+      recurring_promises: recurringPromises,
+      weekly_plays: weeklyPlays,
+      observations,
+      ...(save ? { title: suggestedTitle || null, category } : {}),
     },
     recordings: recordingsList.map((r) => ({ id: r.id, title: r.title, recorded_at: r.recorded_at, status: r.status })),
   });
