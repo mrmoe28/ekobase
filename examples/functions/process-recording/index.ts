@@ -85,6 +85,7 @@ export async function handler(req: any) {
     await client.from("summaries").upsert({
       recording_id: recordingId,
       user_id: recording.user_id,
+      domain: summary.domain,
       short_summary: summary.shortSummary,
       detailed_summary: summary.detailedSummary,
       customer_issue: summary.customerIssue,

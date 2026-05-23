@@ -7,6 +7,7 @@ const ANTHROPIC_VERSION = "2023-06-01";
 
 type SummaryRow = {
   recording_id: string;
+  domain: string | null;
   short_summary: string | null;
   detailed_summary: string | null;
   key_points: unknown;
@@ -119,14 +120,13 @@ export async function handler(req: any) {
   const summaries = (summariesRes.data ?? []) as SummaryRow[];
   const actionItems = (actionsRes.data ?? []) as ActionItemRow[];
 
-  // Compact input for Claude. Cap each transcript-summary blob so we stay well
-  // within the model context even for week-long rollups.
   const compact = recordingsList.map((r) => {
     const s = summaries.find((row) => row.recording_id === r.id);
     const actions = actionItems.filter((a) => a.recording_id === r.id);
     return {
       title: r.title ?? "(no title)",
       type: r.recording_type ?? "other",
+      domain: s?.domain ?? "other",
       recorded_at: r.recorded_at,
       short: s?.short_summary ?? "",
       detail: s?.detailed_summary ?? "",
@@ -143,9 +143,15 @@ export async function handler(req: any) {
 
   const save = (body as Record<string, unknown>).save === true;
 
+  const domains = Array.from(new Set(summaries.map((s) => s.domain).filter((d): d is string => !!d)));
+  const domainNote = domains.length > 0
+    ? `Recording domains in this span: ${domains.join(", ")}.`
+    : "Recording domains are unknown — infer from the content.";
+
   const system = [
-    "You produce strategic rollups across multiple business recordings (calls, meetings, voice notes, site visits) over a date range.",
-    "Look across all the entries and identify the patterns that matter for the listener's day-to-day work going forward.",
+    "You produce rollups across multiple recordings over a date range or selection. The recordings may be any mix of business calls, meetings, voice notes, personal reflections, study sessions, brainstorms, health check-ins, conversations with family or friends, or any other topic.",
+    "Read the per-recording domain on each entry. Match the register and vocabulary of the rollup to what the recordings actually contain — do not impose business framing on personal, learning, creative, health, or relationship recordings, and do not impose personal framing on business recordings.",
+    "Look across all entries and identify the patterns that matter for the listener going forward.",
     "Return ONLY a JSON object — no prose, no markdown fences.",
   ].join(" ");
 
@@ -153,20 +159,21 @@ export async function handler(req: any) {
     ? `Selected ${recordingsList.length} recording(s) by id.`
     : `Date range: ${fromDate} to ${toDate} (${recordingsList.length} recordings).`;
   const baseFields = [
-    "- headline: string (1 punchy sentence — the most important takeaway across all recordings)",
+    "- headline: string (1 punchy sentence — the most important takeaway across all recordings, in language that fits the dominant domain(s))",
     "- themes: string[] (3-6 recurring themes or topics that surfaced across multiple recordings)",
-    "- recurring_promises: string[] (commitments that appear in more than one recording, or that the listener kept echoing back)",
-    "- weekly_plays: string[] (3-5 concrete imperative actions for the upcoming week, derived from patterns across recordings — not just from any single one)",
-    "- observations: string[] (2-4 sharp observations about what is shifting, working, or breaking — what would be lost if this rollup didn't exist)",
+    "- recurring_promises: string[] (commitments that appear in more than one recording, or that the speaker kept echoing back — these may be commitments to others, or commitments to oneself)",
+    "- weekly_plays: string[] (3-5 concrete imperative actions for the upcoming week, derived from patterns across recordings — match the domain: work moves for business, practices/habits for personal_growth/learning/creative, routines for health, specific conversations for relationships)",
+    "- observations: string[] (2-4 sharp observations about what is shifting, working, or breaking across the recordings — what would be lost if this rollup didn't exist)",
   ];
   const saveFields = save
     ? [
         "- title: string (4-8 words — a concrete, scannable title for this rollup, like a doc title not a sentence)",
-        "- category: string (one of: customer_relations, equipment_issues, sales_pipeline, team_ops, compliance, field_work, other — pick the single best fit)",
+        "- category: string (one of: customer_relations, equipment_issues, sales_pipeline, team_ops, compliance, field_work, personal_growth, learning, creative, health_wellness, relationships, other — pick the single best fit for what the recordings are actually about)",
       ]
     : [];
   const user = [
     scopeLine,
+    domainNote,
     "",
     "Return a single JSON object with exactly these fields:",
     ...baseFields,
@@ -214,6 +221,11 @@ export async function handler(req: any) {
     "team_ops",
     "compliance",
     "field_work",
+    "personal_growth",
+    "learning",
+    "creative",
+    "health_wellness",
+    "relationships",
     "other",
   ]);
 
