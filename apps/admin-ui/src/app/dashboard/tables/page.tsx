@@ -241,11 +241,11 @@ export default function TableEditorPage() {
                 <div className="flex items-center justify-center h-32">
                   <Loader2 size={24} className="animate-spin" style={{ color: 'var(--accent)' }} />
                 </div>
-              ) : tableData && tableData.rows.length > 0 ? (
+              ) : tableData && tableData.rows?.length > 0 ? (
                 <table className="w-full text-xs">
                   <thead>
                     <tr style={{ borderBottom: '1px solid var(--border)' }}>
-                      {tableData.fields.map(f => (
+                      {tableData.fields?.map(f => (
                         <th key={f.name}
                           className="px-3 py-2 text-left font-semibold whitespace-nowrap tracking-wide sticky top-0"
                           style={{ color: 'var(--text-muted)', backgroundColor: 'var(--bg)', borderBottom: '1px solid var(--border)' }}>
@@ -257,7 +257,7 @@ export default function TableEditorPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {tableData.rows.map((row, ri) => {
+                    {tableData.rows?.map((row, ri) => {
                       const isDel = deletingRow === row
                       return (
                         <tr key={ri}
@@ -265,7 +265,7 @@ export default function TableEditorPage() {
                           style={{ borderBottom: '1px solid var(--border)' }}
                           onMouseEnter={e => { e.currentTarget.style.backgroundColor = 'color-mix(in srgb, var(--border) 30%, transparent)' }}
                           onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent' }}>
-                          {tableData.fields.map(f => (
+                          {tableData.fields?.map(f => (
                             <td key={f.name} className="px-3 py-2 max-w-[200px]"
                               style={{ color: 'var(--text)', fontFamily: 'monospace' }}>
                               <CellDisplay v={row[f.name]} />
