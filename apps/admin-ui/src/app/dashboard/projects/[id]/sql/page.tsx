@@ -96,7 +96,7 @@ export default function ProjectSqlPage() {
     localStorage.removeItem(historyKey)
   }
 
-  const columns = result?.fields.map(f => f.name) ?? []
+  const columns = result?.fields ? result.fields.map(f => f.name) : []
 
   return (
     <div className="max-w-6xl mx-auto space-y-4">
