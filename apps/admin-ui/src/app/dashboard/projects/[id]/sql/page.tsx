@@ -158,7 +158,7 @@ export default function ProjectSqlPage() {
             <span className="text-xs font-medium" style={{ color: 'var(--text-muted)' }}>
               {result.command} ·{' '}
               {result.rows?.length > 0
-                ? `${result.rows.length} row${result.rows.length !== 1 ? 's' : ''}`
+                ? `${result.rows?.length} row${result.rows?.length !== 1 ? 's' : ''}`
                 : result.rowCount != null
                 ? `${result.rowCount} row${result.rowCount !== 1 ? 's' : ''} affected`
                 : 'OK'}
