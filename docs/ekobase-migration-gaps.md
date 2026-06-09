@@ -102,7 +102,7 @@ The onboarding wizard's "Detect calendar" step depends on Google OAuth being com
 ## 5. Env vars on `supabase-clone-app`
 
 ### ✅ Currently set
-`POSTGRES_PASSWORD`, `JWT_SECRET`, `GATEWAY_URL`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `APP_URL`, `SQUARE_ENVIRONMENT`, `SQUARE_APP_ID`, `SQUARE_APP_SECRET`
+`POSTGRES_PASSWORD`, `JWT_SECRET`, `GATEWAY_URL`, `SUPABASE_URL`, `PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `APP_URL`, `SQUARE_ENVIRONMENT`, `SQUARE_APP_ID`, `SQUARE_APP_SECRET`
 
 ### ❌ Needed by other Node-style functions (Phase 1.5)
 

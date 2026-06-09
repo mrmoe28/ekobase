@@ -110,6 +110,7 @@ services:
       FUNCTIONS_DIR: /app/examples/functions
       # ── shared by all functions that call back into EkoBase ──
       SUPABASE_URL: ${SUPABASE_URL:-https://supabase.ekodevops.com}
+      PUBLIC_SUPABASE_URL: ${PUBLIC_SUPABASE_URL:-https://supabase.ekodevops.com}
       SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY}
       SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
       # functions call back into the gateway internally to avoid Cloudflare loopback timeouts
