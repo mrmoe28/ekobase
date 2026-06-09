@@ -179,16 +179,15 @@ services:
     networks:
       - coolify
     restart: unless-stopped
-    init: true
     depends_on:
       - gateway
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.ekobase-adminui-http.rule=Host(`admin.supabase.ekodevops.com`)"
+      - "traefik.http.routers.ekobase-adminui-http.rule=Host(`supabase-admin.ekodevops.com`)"
       - "traefik.http.routers.ekobase-adminui-http.entryPoints=http"
       - "traefik.http.routers.ekobase-adminui-http.service=ekobase-adminui"
       - "traefik.http.routers.ekobase-adminui-http.priority=200"
-      - "traefik.http.routers.ekobase-adminui-https.rule=Host(`admin.supabase.ekodevops.com`)"
+      - "traefik.http.routers.ekobase-adminui-https.rule=Host(`supabase-admin.ekodevops.com`)"
       - "traefik.http.routers.ekobase-adminui-https.entryPoints=https"
       - "traefik.http.routers.ekobase-adminui-https.tls=true"
       - "traefik.http.routers.ekobase-adminui-https.service=ekobase-adminui"
