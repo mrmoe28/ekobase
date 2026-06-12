@@ -252,6 +252,16 @@ export const upsertSecrets = (secrets: { name: string; value: string }[]) =>
 export const deleteSecret = (name: string) =>
   request<object>(`/secrets/${encodeURIComponent(name)}`, { method: 'DELETE' })
 
+// Project-scoped Function Secrets
+export const listProjectSecrets = (projectId: string) =>
+  request<FunctionSecret[]>(`/projects/${projectId}/secrets`)
+
+export const upsertProjectSecrets = (projectId: string, secrets: { name: string; value: string }[]) =>
+  request<object>(`/projects/${projectId}/secrets`, { method: 'POST', body: JSON.stringify({ secrets }) })
+
+export const deleteProjectSecret = (projectId: string, name: string) =>
+  request<object>(`/projects/${projectId}/secrets/${encodeURIComponent(name)}`, { method: 'DELETE' })
+
 // Storage
 export type StorageBucket = {
   id: string

@@ -745,6 +745,69 @@ app.post<{
   },
 );
 
+// ─── Project-scoped Secrets ───────────────────────────────────────────────────
+
+app.get<{ Params: { projectId: string } }>(
+  "/projects/:projectId/secrets",
+  async (request, reply) => {
+    const { projectId } = request.params;
+    if (!(await projectExists(projectId))) {
+      return reply.code(404).send({ error: "Project not found" });
+    }
+    const result = await pgClient.query(
+      "SELECT name, value, updated_at FROM admin.project_secrets WHERE project_id = $1 ORDER BY name",
+      [projectId],
+    );
+    const rows = result.rows.map((r) => ({
+      name: r.name,
+      digest: createHash("sha256").update(r.value).digest("hex").slice(0, 16),
+      updated_at: r.updated_at,
+    }));
+    return reply.send(rows);
+  },
+);
+
+app.post<{ Params: { projectId: string }; Body: { secrets: { name: string; value: string }[] } }>(
+  "/projects/:projectId/secrets",
+  async (request, reply) => {
+    const { projectId } = request.params;
+    if (!(await projectExists(projectId))) {
+      return reply.code(404).send({ error: "Project not found" });
+    }
+    const { secrets } = request.body;
+    if (!Array.isArray(secrets) || secrets.length === 0)
+      return reply.code(400).send({ error: "secrets array is required" });
+    for (const s of secrets) {
+      if (!s.name || !s.name.trim())
+        return reply.code(400).send({ error: "Each secret must have a name" });
+    }
+    for (const s of secrets) {
+      await pgClient.query(
+        `INSERT INTO admin.project_secrets (project_id, name, value, updated_at)
+         VALUES ($1, $2, $3, now())
+         ON CONFLICT (project_id, name) DO UPDATE SET value = $3, updated_at = now()`,
+        [projectId, s.name.trim(), s.value],
+      );
+    }
+    return reply.code(204).send();
+  },
+);
+
+app.delete<{ Params: { projectId: string; name: string } }>(
+  "/projects/:projectId/secrets/:name",
+  async (request, reply) => {
+    const { projectId, name } = request.params;
+    if (!(await projectExists(projectId))) {
+      return reply.code(404).send({ error: "Project not found" });
+    }
+    await pgClient.query("DELETE FROM admin.project_secrets WHERE project_id = $1 AND name = $2", [
+      projectId,
+      name,
+    ]);
+    return reply.code(204).send();
+  },
+);
+
 // ─── SQL execution ────────────────────────────────────────────────────────────
 
 app.post<{ Body: { query?: string } }>(
@@ -1399,6 +1462,18 @@ async function initSchema() {
         check (status in ('created', 'deployed', 'failed')),
       created_at timestamptz not null default now(),
       unique (function_id, version)
+    )
+  `);
+
+  // project-scoped secrets
+  await pgClient.query(`
+    create table if not exists admin.project_secrets (
+      project_id uuid not null references admin.projects(id) on delete cascade,
+      name text not null,
+      value text not null,
+      created_at timestamptz not null default now(),
+      updated_at timestamptz not null default now(),
+      primary key (project_id, name)
     )
   `);
 
