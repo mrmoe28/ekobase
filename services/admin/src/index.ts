@@ -437,6 +437,126 @@ app.get<{ Params: { projectId: string } }>(
   },
 );
 
+// ─── API Keys ─────────────────────────────────────────────────────────────────
+
+function generateApiKey(projectId: string): string {
+  const chars = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"; // base58
+  let rand = "";
+  for (let i = 0; i < 24; i++) {
+    rand += chars[Math.floor(Math.random() * chars.length)];
+  }
+  return `eko_${projectId}_${rand}`;
+}
+
+app.get<{ Params: { projectId: string } }>(
+  "/projects/:projectId/api-keys",
+  async (request, reply) => {
+    const { projectId } = request.params;
+    const result = await pgClient.query<{
+      id: string;
+      name: string;
+      scopes: string[];
+      last_used_at: Date | null;
+      revoked: boolean;
+      created_at: Date;
+    }>(
+      `select id, name, scopes, last_used_at, revoked, created_at
+       from admin.api_keys
+       where project_id = $1
+       order by created_at desc`,
+      [projectId],
+    );
+    return reply.send(result.rows.map(r => ({
+      ...r,
+      key_preview: `eko_${projectId.slice(0,6)}...****${r.id.slice(-6)}`,
+    })));
+  },
+);
+
+app.post<{
+  Params: { projectId: string };
+  Body: { name: string; scopes?: string[] };
+}>(
+  "/projects/:projectId/api-keys",
+  async (request, reply) => {
+    const { projectId } = request.params;
+    const { name, scopes } = request.body ?? {};
+    if (!name?.trim()) {
+      return reply.code(400).send({ error: "Key name is required" });
+    }
+    const rawKey = generateApiKey(projectId);
+    const keyHash = createHash("sha256").update(rawKey).digest("hex");
+    const validScopes = (scopes ?? ["read", "write"]).filter((s: string) =>
+      ["read", "write", "admin"].includes(s)
+    );
+
+    try {
+      const result = await pgClient.query<{
+        id: string;
+        name: string;
+        scopes: string[];
+        created_at: Date;
+      }>(
+        `insert into admin.api_keys (project_id, name, key_hash, scopes)
+         values ($1, $2, $3, $4)
+         returning id, name, scopes, created_at`,
+        [projectId, name.trim(), keyHash, validScopes],
+      );
+      return reply.code(201).send({
+        ...result.rows[0],
+        api_key: rawKey, // shown ONLY once
+      });
+    } catch (error) {
+      if ((error as { code?: string }).code === "23505") {
+        return reply.code(409).send({ error: "Key hash collision — retry" });
+      }
+      return reply.code(500).send({ error: "Failed to create API key" });
+    }
+  },
+);
+
+app.patch<{
+  Params: { projectId: string; keyId: string };
+  Body: { name?: string; revoked?: boolean; scopes?: string[] };
+}>(
+  "/projects/:projectId/api-keys/:keyId",
+  async (request, reply) => {
+    const { projectId, keyId } = request.params;
+    const { name, revoked, scopes } = request.body ?? {};
+    const result = await pgClient.query(
+      `update admin.api_keys set
+         name = coalesce($1, name),
+         revoked = coalesce($2, revoked),
+         scopes = coalesce($3, scopes),
+         updated_at = now()
+       where id = $4 and project_id = $5
+       returning id`,
+      [name ?? null, revoked ?? null, scopes ?? null, keyId, projectId],
+    );
+    if (result.rows.length === 0) {
+      return reply.code(404).send({ error: "API key not found" });
+    }
+    return reply.send({ ok: true });
+  },
+);
+
+app.delete<{
+  Params: { projectId: string; keyId: string };
+}>(
+  "/projects/:projectId/api-keys/:keyId",
+  async (request, reply) => {
+    const { projectId, keyId } = request.params;
+    const result = await pgClient.query(
+      "delete from admin.api_keys where id = $1 and project_id = $2 returning id",
+      [keyId, projectId],
+    );
+    if (result.rows.length === 0) {
+      return reply.code(404).send({ error: "API key not found" });
+    }
+    return reply.code(204).send();
+  },
+);
+
 app.get<{ Params: { projectId: string } }>(
   "/projects/:projectId/members",
   async (request, reply) => {
