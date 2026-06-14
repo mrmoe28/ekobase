@@ -1,0 +1,9 @@
+[Unit]
+Description=Ekobase public edge health check
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/mrmoe28/Project X/Ekobase
+ExecStart=/home/mrmoe28/Project X/Ekobase/scripts/check-public-edge.sh

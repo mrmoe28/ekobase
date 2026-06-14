@@ -110,6 +110,37 @@ export const addProjectMember = (projectId: string, user_id: string) =>
 export const removeProjectMember = (projectId: string, userId: string) =>
   request<object>(`/projects/${projectId}/members/${userId}`, { method: 'DELETE' })
 
+// API Keys
+export type ApiKey = {
+  id: string
+  name: string
+  scopes: string[]
+  last_used_at: string | null
+  revoked: boolean
+  created_at: string
+  key_preview: string
+}
+
+export type ApiKeyCreateResult = ApiKey & { api_key: string }
+
+export const listApiKeys = (projectId: string) =>
+  request<ApiKey[]>(`/projects/${projectId}/api-keys`)
+
+export const createApiKey = (projectId: string, body: { name: string; scopes?: string[] }) =>
+  request<ApiKeyCreateResult>(`/projects/${projectId}/api-keys`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+
+export const revokeApiKey = (projectId: string, keyId: string) =>
+  request<object>(`/projects/${projectId}/api-keys/${keyId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ revoked: true }),
+  })
+
+export const deleteApiKey = (projectId: string, keyId: string) =>
+  request<object>(`/projects/${projectId}/api-keys/${keyId}`, { method: 'DELETE' })
+
 // Edge Functions
 export type EdgeFunctionStatus = 'draft' | 'deployed' | 'failed' | 'disabled'
 export type EdgeFunctionDeploymentStatus = 'created' | 'deployed' | 'failed'

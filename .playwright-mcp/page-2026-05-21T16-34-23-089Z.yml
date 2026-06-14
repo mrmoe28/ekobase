@@ -1,0 +1,105 @@
+- generic [ref=e1]:
+  - alert [ref=e2]
+  - generic [ref=e27]:
+    - complementary [ref=e28]:
+      - generic [ref=e29]:
+        - generic [ref=e30]:
+          - img [ref=e32]
+          - generic [ref=e34]: Admin
+        - navigation [ref=e35]:
+          - button "Overview" [ref=e36] [cursor=pointer]:
+            - img [ref=e37]
+            - text: Overview
+          - button "Projects" [ref=e42] [cursor=pointer]:
+            - img [ref=e43]
+            - text: Projects
+          - button "Users" [ref=e45] [cursor=pointer]:
+            - img [ref=e46]
+            - text: Users
+          - button "Tenants" [ref=e51] [cursor=pointer]:
+            - img [ref=e52]
+            - text: Tenants
+          - button "SQL Editor" [ref=e56] [cursor=pointer]:
+            - img [ref=e57]
+            - text: SQL Editor
+          - button "Table Editor" [ref=e59] [cursor=pointer]:
+            - img [ref=e60]
+            - text: Table Editor
+          - button "Edge Functions" [ref=e62] [cursor=pointer]:
+            - img [ref=e63]
+            - text: Edge Functions
+          - button "Integrations" [ref=e65] [cursor=pointer]:
+            - img [ref=e66]
+            - text: Integrations
+        - generic [ref=e68]:
+          - button "Light mode" [ref=e69] [cursor=pointer]:
+            - img [ref=e70]
+            - text: Light mode
+          - button "Sign out" [ref=e76] [cursor=pointer]:
+            - img [ref=e77]
+            - text: Sign out
+    - main [ref=e81]:
+      - generic [ref=e82]:
+        - complementary [ref=e83]:
+          - generic [ref=e84]:
+            - button "All projects" [ref=e85] [cursor=pointer]:
+              - img [ref=e86]
+              - text: All projects
+            - paragraph [ref=e88]: Hawk
+          - navigation [ref=e89]:
+            - button "Overview" [ref=e90] [cursor=pointer]:
+              - img [ref=e91]
+              - text: Overview
+            - button "Table Editor" [ref=e96] [cursor=pointer]:
+              - img [ref=e97]
+              - text: Table Editor
+            - button "SQL Editor" [ref=e99] [cursor=pointer]:
+              - img [ref=e100]
+              - text: SQL Editor
+            - button "Database" [ref=e102] [cursor=pointer]:
+              - img [ref=e103]
+              - text: Database
+            - button "Authentication" [active] [ref=e107] [cursor=pointer]:
+              - img [ref=e108]
+              - text: Authentication
+            - button "Storage" [ref=e110] [cursor=pointer]:
+              - img [ref=e111]
+              - text: Storage
+            - button "Edge Functions" [ref=e113] [cursor=pointer]:
+              - img [ref=e114]
+              - text: Edge Functions
+            - button "Realtime" [ref=e116] [cursor=pointer]:
+              - img [ref=e117]
+              - text: Realtime
+            - button "Logs" [ref=e123] [cursor=pointer]:
+              - img [ref=e124]
+              - text: Logs
+            - button "Integrations" [ref=e127] [cursor=pointer]:
+              - img [ref=e128]
+              - text: Integrations
+          - button "Project Settings" [ref=e131] [cursor=pointer]:
+            - img [ref=e132]
+            - text: Project Settings
+        - generic [ref=e210]:
+          - generic [ref=e211]:
+            - img [ref=e213]
+            - generic [ref=e215]:
+              - heading "Authentication" [level=1] [ref=e216]
+              - paragraph [ref=e217]: Manage users with access to this project
+          - generic [ref=e218]:
+            - heading "Project users" [level=2] [ref=e219]
+            - generic [ref=e220]:
+              - combobox [ref=e221]:
+                - option "Grant access to a user…" [selected]
+              - button [disabled] [ref=e222]:
+                - img [ref=e223]
+            - generic [ref=e225]:
+              - generic [ref=e226]:
+                - paragraph [ref=e227]: ekosolarize@gmail.com
+                - paragraph [ref=e228]: a4301dc1-aeab-41ca-84f9-4e93574792fb
+              - generic [ref=e229]:
+                - generic [ref=e230]: member
+                - button "Generate user access token" [ref=e231] [cursor=pointer]:
+                  - img [ref=e232]
+                - button [ref=e235] [cursor=pointer]:
+                  - img [ref=e236]

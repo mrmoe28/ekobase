@@ -21,6 +21,24 @@ http://localhost:54321
 
 This is intentionally not a full Supabase replacement yet. The first milestone is proving client compatibility for RLS-protected PostgREST queries and function invocation.
 
+## Production Edge
+
+Canonical production URLs:
+
+- `https://supabase.ekodevops.com`
+- `https://supabase-admin.ekodevops.com`
+
+Operational notes live in [docs/public-edge.md](/home/mrmoe28/Project%20X/Ekobase/docs/public-edge.md:1).
+
+Useful commands:
+
+```bash
+./scripts/check-public-edge.sh
+./scripts/check-edge-config.sh
+sudo ./scripts/restore-cloudflared.sh
+sudo ./scripts/install-public-edge-monitor.sh
+```
+
 ## Codex Sandbox Note
 
 Inside the Codex sandbox, Node processes may be blocked from opening local TCP

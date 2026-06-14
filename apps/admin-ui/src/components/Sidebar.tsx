@@ -12,6 +12,7 @@ import {
   Table2,
   Zap,
   Plug,
+  Settings2,
   Sun,
   Moon,
   LogOut,
@@ -30,6 +31,7 @@ const navItems = [
   { href: '/dashboard/tables', label: 'Table Editor', icon: Table2 },
   { href: '/dashboard/functions', label: 'Edge Functions', icon: Zap },
   { href: '/dashboard/integrations', label: 'Integrations', icon: Plug },
+  { href: '/dashboard/settings', label: 'Admin Settings', icon: Settings2 },
 ]
 
 interface SidebarProps {

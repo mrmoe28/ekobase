@@ -1,10 +1,11 @@
 import type { NextConfig } from 'next'
 
 const nextConfig: NextConfig = {
+  output: 'standalone',
   reactStrictMode: true,
   async rewrites() {
     const gatewayUrl =
-      process.env.GATEWAY_URL ?? 'http://localhost:54321'
+      process.env.GATEWAY_URL ?? 'http://gateway:54321'
     return [
       {
         source: '/api/admin/:path*',

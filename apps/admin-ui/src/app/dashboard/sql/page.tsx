@@ -186,14 +186,14 @@ export default function SqlEditorPage() {
             style={{ borderBottom: '1px solid var(--border)' }}>
             <span className="text-xs font-medium" style={{ color: 'var(--text-muted)' }}>
               {result.command} ·{' '}
-              {result.rows.length > 0
+              {result.rows?.length > 0
                 ? `${result.rows.length} row${result.rows.length !== 1 ? 's' : ''}`
                 : result.rowCount != null
                 ? `${result.rowCount} row${result.rowCount !== 1 ? 's' : ''} affected`
                 : 'OK'}
             </span>
           </div>
-          {result.rows.length > 0 ? (
+          {result.rows?.length > 0 ? (
             <div className="overflow-x-auto">
               <table className="w-full text-xs font-mono">
                 <thead>
@@ -207,7 +207,7 @@ export default function SqlEditorPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {result.rows.map((row, ri) => (
+                  {result.rows?.map((row, ri) => (
                     <tr key={ri} style={{ borderBottom: '1px solid var(--border)' }}>
                       {columns.map(col => {
                         const v = row[col]

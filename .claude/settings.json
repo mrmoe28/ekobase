@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"/home/mrmoe28/Project X/Ekobase/.claude/start-dev.sh\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

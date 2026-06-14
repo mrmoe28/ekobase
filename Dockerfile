@@ -42,4 +42,5 @@ RUN pnpm --filter @local/admin-ui build
 WORKDIR /app/apps/admin-ui
 EXPOSE 3000
 ENV PORT=3000
-CMD ["node_modules/.bin/next", "start", "--port", "3000", "--hostname", "0.0.0.0"]
+ENV HOSTNAME=0.0.0.0
+CMD ["node", ".next/standalone/apps/admin-ui/server.js"]

@@ -20,8 +20,9 @@ export default function ProjectOverviewPage() {
   const [copied, setCopied] = useState<string | null>(null)
 
   const projectSchema = 'proj_' + id.replace(/-/g, '').slice(0, 16)
-  const projectUrl =
+  const gatewayUrl =
     process.env.NEXT_PUBLIC_GATEWAY_URL ?? 'https://supabase.ekodevops.com'
+  const projectUrl = `${gatewayUrl}/p/${id}`
 
   useEffect(() => {
     getProjectKeys(id).then(setKeys).catch(() => {})

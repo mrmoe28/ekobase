@@ -1,0 +1,88 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - complementary [ref=e3]:
+      - generic [ref=e4]:
+        - generic [ref=e5]:
+          - img [ref=e7]
+          - generic [ref=e9]: Admin
+        - navigation [ref=e10]:
+          - button "Overview" [ref=e11] [cursor=pointer]:
+            - img [ref=e12]
+            - text: Overview
+          - button "Projects" [ref=e17] [cursor=pointer]:
+            - img [ref=e18]
+            - text: Projects
+          - button "Users" [ref=e20] [cursor=pointer]:
+            - img [ref=e21]
+            - text: Users
+          - button "Tenants" [ref=e26] [cursor=pointer]:
+            - img [ref=e27]
+            - text: Tenants
+          - button "SQL Editor" [ref=e31] [cursor=pointer]:
+            - img [ref=e32]
+            - text: SQL Editor
+          - button "Table Editor" [ref=e34] [cursor=pointer]:
+            - img [ref=e35]
+            - text: Table Editor
+          - button "Edge Functions" [ref=e37] [cursor=pointer]:
+            - img [ref=e38]
+            - text: Edge Functions
+          - button "Integrations" [ref=e40] [cursor=pointer]:
+            - img [ref=e41]
+            - text: Integrations
+        - generic [ref=e43]:
+          - button "Light mode" [ref=e44] [cursor=pointer]:
+            - img [ref=e45]
+            - text: Light mode
+          - button "Sign out" [ref=e51] [cursor=pointer]:
+            - img [ref=e52]
+            - text: Sign out
+    - main [ref=e56]:
+      - generic [ref=e57]:
+        - complementary [ref=e58]:
+          - generic [ref=e59]:
+            - button "All projects" [ref=e60] [cursor=pointer]:
+              - img [ref=e61]
+              - text: All projects
+            - paragraph [ref=e63]: …
+          - navigation [ref=e64]:
+            - button "Overview" [ref=e65] [cursor=pointer]:
+              - img [ref=e66]
+              - text: Overview
+            - button "Table Editor" [ref=e71] [cursor=pointer]:
+              - img [ref=e72]
+              - text: Table Editor
+            - button "SQL Editor" [ref=e74] [cursor=pointer]:
+              - img [ref=e75]
+              - text: SQL Editor
+            - button "Database" [ref=e77] [cursor=pointer]:
+              - img [ref=e78]
+              - text: Database
+            - button "Authentication" [ref=e82] [cursor=pointer]:
+              - img [ref=e83]
+              - text: Authentication
+            - button "Storage" [ref=e85] [cursor=pointer]:
+              - img [ref=e86]
+              - text: Storage
+            - button "Edge Functions" [ref=e88] [cursor=pointer]:
+              - img [ref=e89]
+              - text: Edge Functions
+            - button "Realtime" [ref=e91] [cursor=pointer]:
+              - img [ref=e92]
+              - text: Realtime
+            - button "Logs" [ref=e98] [cursor=pointer]:
+              - img [ref=e99]
+              - text: Logs
+            - button "Integrations" [ref=e102] [cursor=pointer]:
+              - img [ref=e103]
+              - text: Integrations
+          - button "Project Settings" [ref=e106] [cursor=pointer]:
+            - img [ref=e107]
+            - text: Project Settings
+        - generic [ref=e111]:
+          - img [ref=e113]
+          - generic [ref=e115]:
+            - heading "Storage" [level=2] [ref=e116]
+            - paragraph [ref=e117]: Browse and manage project files, buckets, and objects.
+            - generic [ref=e118]: Coming soon
+  - alert [ref=e119]
