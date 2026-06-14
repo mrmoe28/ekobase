@@ -89,10 +89,10 @@ services:
     init: true
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.ekobase-gateway-http.rule=Host(`supabase.ekodevops.com`) && (PathPrefix(`/rest`) || PathPrefix(`/auth`) || PathPrefix(`/storage`) || PathPrefix(`/realtime`) || PathPrefix(`/functions`) || PathPrefix(`/admin`))"
+      - "traefik.http.routers.ekobase-gateway-http.rule=Host(`supabase.ekodevops.com`) && (PathPrefix(`/rest`) || PathPrefix(`/auth`) || PathPrefix(`/storage`) || PathPrefix(`/realtime`) || PathPrefix(`/functions`) || PathPrefix(`/admin`) || PathPrefix(`/p/`))"
       - "traefik.http.routers.ekobase-gateway-http.entryPoints=http"
       - "traefik.http.routers.ekobase-gateway-http.service=ekobase-gateway"
-      - "traefik.http.routers.ekobase-gateway-https.rule=Host(`supabase.ekodevops.com`) && (PathPrefix(`/rest`) || PathPrefix(`/auth`) || PathPrefix(`/storage`) || PathPrefix(`/realtime`) || PathPrefix(`/functions`) || PathPrefix(`/admin`))"
+      - "traefik.http.routers.ekobase-gateway-https.rule=Host(`supabase.ekodevops.com`) && (PathPrefix(`/rest`) || PathPrefix(`/auth`) || PathPrefix(`/storage`) || PathPrefix(`/realtime`) || PathPrefix(`/functions`) || PathPrefix(`/admin`) || PathPrefix(`/p/`))"
       - "traefik.http.routers.ekobase-gateway-https.entryPoints=https"
       - "traefik.http.routers.ekobase-gateway-https.tls=true"
       - "traefik.http.routers.ekobase-gateway-https.service=ekobase-gateway"
