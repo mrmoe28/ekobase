@@ -284,7 +284,21 @@ async function listFiles(bucket: Bucket, userId: string, role: AuthClaims["role"
 app.get("/health", async () => ({ ok: true }));
 
 app.addHook("onRequest", async (request, reply) => {
+  // CORS preflight
+  if (request.method === "OPTIONS") {
+    reply
+      .header("Access-Control-Allow-Origin", "*")
+      .header("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS,PATCH")
+      .header("Access-Control-Allow-Headers", "apikey,authorization,content-type,x-client-info,x-request-id")
+      .header("Access-Control-Max-Age", "86400");
+    return reply.code(204).send();
+  }
+});
+
+app.addHook("onRequest", async (request, reply) => {
   if (request.url === "/health") return;
+  // Public bucket objects do not require authentication
+  if (request.url.startsWith("/object/public/")) return;
 
   const claims = await getClaimsFromAuth(request.headers.authorization);
   if (!claims) {
@@ -298,7 +312,14 @@ app.addHook("onRequest", async (request, reply) => {
   request.projectId = projectId;
 });
 
-app.addContentTypeParser("multipart/form-data", { parseAs: "string" }, (request, body, done) => {
+app.addHook("onSend", async (_request, reply) => {
+  reply.header("Access-Control-Allow-Origin", "*");
+});
+
+// Parse multipart as raw Buffer so binary image data is not corrupted.
+// Fastify's built-in string parser would UTF-8–encode the payload and
+// invalidate Content-Length checks on binary uploads.
+app.addContentTypeParser("multipart/form-data", { parseAs: "buffer" }, (_request, body, done) => {
   done(null, body);
 });
 
@@ -358,6 +379,34 @@ app.delete<{ Params: { bucketName: string } }>("/bucket/:bucketName", async (req
   }
   return reply.code(200).send({ message: "Bucket deleted successfully" });
 });
+
+app.get<{ Params: { bucketName: string } }>(
+  "/object/public/:bucketName/*",
+  async (request, reply) => {
+    const { bucketName } = request.params;
+    const fileName = (request.params["*"] as string) || "";
+
+    const result = await pgClient.query<Bucket>(
+      "select * from storage.buckets where name = $1 and public = true",
+      [bucketName],
+    );
+    const bucket = result.rows[0];
+    if (!bucket) return reply.code(404).send({ error: "Bucket not found" });
+
+    const fileData = await downloadFile(bucket, fileName);
+    if (!fileData) return reply.code(404).send({ error: "File not found" });
+
+    const fileResult = await pgClient.query<FileMetadata>(
+      "select content_type from storage.files where bucket_id = $1 and name = $2",
+      [bucket.id, fileName],
+    );
+
+    const contentType = fileResult.rows[0]?.content_type || "application/octet-stream";
+    reply.header("Content-Type", contentType);
+    reply.header("Content-Length", fileData.length);
+    return reply.send(fileData);
+  },
+);
 
 app.get<{ Params: { bucketName: string } }>(
   "/object/:bucketName/*",
@@ -420,15 +469,35 @@ app.post<{ Params: { bucketName: string } }>(
     let data: Buffer | undefined;
 
     if (contentType.startsWith("multipart/form-data")) {
-      const body = request.body as string;
+      const body = request.body as Buffer;
       const boundary = contentType.split("boundary=")[1];
-      const parts = body.split(`--${boundary}`);
-      for (const part of parts) {
-        if (part.includes("filename=")) {
-          const contentStart = part.indexOf("\r\n\r\n") + 4;
-          const contentEnd = part.lastIndexOf("\r\n");
-          data = Buffer.from(part.slice(contentStart, contentEnd));
-          break;
+      const boundaryBuf = Buffer.from(`--${boundary}`);
+      const filenameBuf = Buffer.from("filename=");
+      const crlf2Buf = Buffer.from("\r\n\r\n");
+      const crlfBuf = Buffer.from("\r\n");
+
+      let searchFrom = 0;
+      while (searchFrom < body.length) {
+        const partStart = body.indexOf(boundaryBuf, searchFrom);
+        if (partStart === -1) break;
+        searchFrom = partStart + boundaryBuf.length;
+
+        const nextBoundary = body.indexOf(boundaryBuf, searchFrom);
+        const partEnd = nextBoundary === -1 ? body.length : nextBoundary;
+        const part = body.subarray(searchFrom, partEnd);
+
+        if (part.indexOf(filenameBuf) !== -1) {
+          const contentStart = part.indexOf(crlf2Buf);
+          if (contentStart !== -1) {
+            const dataStart = contentStart + crlf2Buf.length;
+            // Strip trailing CRLN before the closing boundary dash-line
+            let dataEnd = part.length;
+            if (part.subarray(part.length - 2).equals(crlfBuf)) {
+              dataEnd -= 2;
+            }
+            data = part.subarray(dataStart, dataEnd);
+            break;
+          }
         }
       }
       if (!data) return reply.code(400).send({ error: "No file data provided" });
