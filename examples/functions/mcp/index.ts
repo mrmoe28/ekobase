@@ -1,3 +1,10 @@
+type FnRequest = {
+  method: string;
+  headers: Record<string, string | string[] | undefined>;
+  body: unknown;
+  query: unknown;
+};
+
 import { createClient } from "@supabase/supabase-js";
 
 const ALLOWED_ORIGINS = (process.env["ALLOWED_ORIGINS"] || "https://ops.lock28.com,http://localhost:5174,http://localhost:5173,http://192.168.1.128:5174").split(",");
@@ -148,7 +155,7 @@ function text(data: unknown) {
 }
 
 // ── Main handler ─────────────────────────────────────────────────────────────
-serve(async (req) => {
+export async function handler(req: FnRequest) {
   if (req.method === "OPTIONS") return { statusCode: 204, body: "",  headers: corsHeaders(req)  };
   if (req.method !== "POST") return new Response("Method Not Allowed", { status: 405, headers: corsHeaders(req) })
 
@@ -339,4 +346,4 @@ serve(async (req) => {
     const msg = e instanceof Error ? e.message : "Internal server error"
     return jsonRpcErr(req, id, -32000, msg, 500)
   }
-})
+}

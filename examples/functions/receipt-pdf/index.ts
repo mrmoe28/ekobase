@@ -179,4 +179,4 @@ export async function handler(req: FnRequest) {
       "Content-Disposition": `attachment; filename="${fileName}"`,
     },
   });
-});
+}

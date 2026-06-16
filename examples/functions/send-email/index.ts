@@ -1,7 +1,12 @@
 import { createRequire } from "node:module"
 
 const require = createRequire(import.meta.url)
-const nodemailer = require("/tmp/nodemailer-install/node_modules/nodemailer")
+let nodemailer: any
+try {
+  nodemailer = require("nodemailer")
+} catch {
+  nodemailer = null
+}
 
 const GMAIL_USER = process.env.GMAIL_USER
 const GMAIL_PASS = process.env.GMAIL_APP_PASSWORD
@@ -26,6 +31,7 @@ async function sendViaSendGrid(to: string, subject: string, html: string, fromNa
 }
 
 async function sendViaGmail(to: string, subject: string, html: string, fromName: string, cc?: string) {
+  if (!nodemailer) throw new Error("nodemailer not installed — skipping Gmail SMTP fallback")
   if (!GMAIL_USER || !GMAIL_PASS) throw new Error("GMAIL_USER or GMAIL_APP_PASSWORD not set")
   const transporter = nodemailer.createTransport({
     host: "smtp.gmail.com", port: 465, secure: true,

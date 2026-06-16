@@ -1,5 +1,13 @@
+type FnRequest = {
+  method: string;
+  headers: Record<string, string | string[] | undefined>;
+  body: unknown;
+  query: unknown;
+};
+
 import { createClient } from "@supabase/supabase-js";
-import nodemailer from "npm:nodemailer"
+// TODO: install nodemailer in functions-runner
+// import nodemailer from "nodemailer"
 
 const ALLOWED_ORIGINS = (process.env["ALLOWED_ORIGINS"] || "https://ops.lock28.com,http://localhost:5174,http://localhost:5173,http://192.168.1.128:5174").split(",");
 
@@ -48,23 +56,8 @@ async function sendEmailViaGmailSmtp(params: {
   html: string
   fromName: string
 }) {
-  const user = process.env["GMAIL_USER"]
-  const pass = process.env["GMAIL_APP_PASSWORD"]
-  if (!user || !pass) throw new Error("GMAIL_USER or GMAIL_APP_PASSWORD is not configured")
-
-  const transporter = nodemailer.createTransport({
-    host: "smtp.gmail.com",
-    port: 465,
-    secure: true,
-    auth: { user, pass },
-  })
-
-  await transporter.sendMail({
-    from: `"${params.fromName}" <${user}>`,
-    to: params.to,
-    subject: params.subject,
-    html: params.html,
-  })
+  // Nodemailer not available in this runtime; skip Gmail SMTP fallback
+  throw new Error("Gmail SMTP fallback requires nodemailer (not installed)")
 }
 
 async function sendNotificationEmail(params: {
@@ -161,7 +154,7 @@ function findField(data: Record<string, any>, ...patterns: string[]) {
   return ""
 }
 
-serve(async (req) => {
+export async function handler(req: FnRequest) {
   if (req.method === "OPTIONS") {
     return { statusCode: 204, body: "",  headers: corsHeaders(req)  };
   }
@@ -308,4 +301,4 @@ serve(async (req) => {
       headers: { ...corsHeaders(req), "Content-Type": "application/json" },
     })
   }
-})
+}

@@ -403,4 +403,4 @@ export async function handler(req: FnRequest) {
     JSON.stringify({ ok: true, inserted, updated, pagesHit, vendors: targets.length, errors: errors.length }),
     { headers: { "Content-Type": "application/json" } },
   );
-});
+}

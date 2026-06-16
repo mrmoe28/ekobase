@@ -1,3 +1,10 @@
+type FnRequest = {
+  method: string;
+  headers: Record<string, string | string[] | undefined>;
+  body: unknown;
+  query: unknown;
+};
+
 import { createClient } from "@supabase/supabase-js";
 import nodemailer from "npm:nodemailer"
 
@@ -127,7 +134,7 @@ const STATUS_HEADER_COLOR: Record<string, string> = {
   PENDING: "#f59e0b",
 }
 
-serve(async (req) => {
+export async function handler(req: FnRequest) {
   if (req.method === "OPTIONS") return { statusCode: 204, body: "",  headers: corsHeaders(req)  };
 
   try {
@@ -283,4 +290,4 @@ serve(async (req) => {
       headers: { ...corsHeaders(req), "Content-Type": "application/json" },
     })
   }
-})
+}

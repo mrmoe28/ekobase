@@ -1,16 +1,4 @@
-import { createRequire } from "node:module"
-import { execSync } from "node:child_process"
 import { createClient } from "@supabase/supabase-js"
-
-const require = createRequire(import.meta.url)
-
-let webpush: any
-try {
-  webpush = require("/tmp/web-push-install/node_modules/web-push")
-} catch {
-  execSync("npm install --prefix /tmp/web-push-install web-push@3.6.7", { stdio: "pipe" })
-  webpush = require("/tmp/web-push-install/node_modules/web-push")
-}
 
 const SUPABASE_URL = process.env.SUPABASE_URL!
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -18,8 +6,16 @@ const VAPID_PUBLIC = process.env.VAPID_PUBLIC_KEY
 const VAPID_PRIVATE = process.env.VAPID_PRIVATE_KEY
 const VAPID_CONTACT = process.env.VAPID_CONTACT || "mailto:admin@example.com"
 
-if (VAPID_PUBLIC && VAPID_PRIVATE) {
-  webpush.setVapidDetails(VAPID_CONTACT, VAPID_PUBLIC, VAPID_PRIVATE)
+let webpush: any
+try {
+  const { createRequire } = await import("node:module")
+  const require = createRequire(import.meta.url)
+  webpush = require("web-push")
+  if (VAPID_PUBLIC && VAPID_PRIVATE) {
+    webpush.setVapidDetails(VAPID_CONTACT, VAPID_PUBLIC, VAPID_PRIVATE)
+  }
+} catch {
+  webpush = null
 }
 
 type PushPayload = {
@@ -37,6 +33,10 @@ export async function handler(req: any) {
   }
   if (req.method !== "POST") {
     return { statusCode: 405, body: "Method not allowed" }
+  }
+
+  if (!webpush) {
+    return { error: "web-push module not installed" }
   }
 
   if (!VAPID_PUBLIC || !VAPID_PRIVATE) {

@@ -1,3 +1,10 @@
+type FnRequest = {
+  method: string;
+  headers: Record<string, string | string[] | undefined>;
+  body: unknown;
+  query: unknown;
+};
+
 import { createClient } from "@supabase/supabase-js";
 
 type IncomingLead = {
@@ -60,7 +67,7 @@ function normalizePhone(phone: string | null) {
   return digits.length > 0 ? digits : null
 }
 
-serve(async (req) => {
+export async function handler(req: FnRequest) {
   if (req.method === "OPTIONS") {
     return { statusCode: 204, body: "",  headers: corsHeaders(req)  };
   }
@@ -217,4 +224,4 @@ serve(async (req) => {
       headers: { ...corsHeaders(req), "Content-Type": "application/json" },
     })
   }
-})
+}

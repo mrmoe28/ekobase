@@ -1,4 +1,11 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1"
+type FnRequest = {
+  method: string;
+  headers: Record<string, string | string[] | undefined>;
+  body: unknown;
+  query: unknown;
+};
+
+import { createClient } from "@supabase/supabase-js";
 
 const ALLOWED_ORIGINS = (process.env["ALLOWED_ORIGINS"] || "https://ops.lock28.com,http://localhost:5174,http://localhost:5173,http://192.168.1.128:5174").split(",");
 
@@ -284,7 +291,7 @@ async function upsertPermitOffice(
 
 // ── Main handler ──
 
-serve(async (req) => {
+export async function handler(req: FnRequest) {
   if (req.method === "OPTIONS") {
     return { statusCode: 204, body: "",  headers: corsHeaders(req)  };
   }
@@ -373,4 +380,4 @@ serve(async (req) => {
       { headers: { ...corsHeaders(req), "Content-Type": "application/json" } }
     )
   }
-})
+}

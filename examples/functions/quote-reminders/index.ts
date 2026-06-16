@@ -1,3 +1,10 @@
+type FnRequest = {
+  method: string;
+  headers: Record<string, string | string[] | undefined>;
+  body: unknown;
+  query: unknown;
+};
+
 // Daily-run edge function that emails quote recipients an expiration reminder
 // (via the existing send-email edge function, which uses the user's Google
 // account) and logs an in-app notification for the owner. Scheduled via pg_cron.
@@ -12,7 +19,7 @@ function daysUntil(dateStr: string): number {
   return Math.ceil(ms / (1000 * 60 * 60 * 24))
 }
 
-serve(async (_req) => {
+export async function handler(req: FnRequest) {
   const supabase = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } })
 
   const { data: quotes, error } = await supabase
@@ -109,4 +116,4 @@ serve(async (_req) => {
     JSON.stringify({ ok: true, sent, candidates: quotes?.length || 0, skipped }),
     { headers: { "Content-Type": "application/json" } }
   )
-})
+}

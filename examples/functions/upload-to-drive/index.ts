@@ -1,3 +1,10 @@
+type FnRequest = {
+  method: string;
+  headers: Record<string, string | string[] | undefined>;
+  body: unknown;
+  query: unknown;
+};
+
 const base64url = (buf: Uint8Array) => Buffer.from(buf).toString("base64url");
 import { createClient } from "@supabase/supabase-js";
 
@@ -103,7 +110,7 @@ async function uploadFile(token: string, file: File, filename: string, folderId:
 
 // ── Main handler ──
 
-serve(async (req) => {
+export async function handler(req: FnRequest) {
   if (req.method === "OPTIONS") {
     return { statusCode: 204, body: "",  headers: corsHeaders(req)  };
   }
@@ -150,4 +157,4 @@ serve(async (req) => {
       headers: { ...corsHeaders(req), "Content-Type": "application/json" },
     })
   }
-})
+}

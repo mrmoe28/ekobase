@@ -1,3 +1,10 @@
+type FnRequest = {
+  method: string;
+  headers: Record<string, string | string[] | undefined>;
+  body: unknown;
+  query: unknown;
+};
+
 import { createClient } from "@supabase/supabase-js";
 
 const ALLOWED_ORIGINS = (process.env["ALLOWED_ORIGINS"] || "https://ops.lock28.com,http://localhost:5174,http://localhost:5173,http://192.168.1.128:5174").split(",");
@@ -50,7 +57,7 @@ You ONLY answer questions about the following topics. If asked about anything el
 
 Keep responses short (2-4 sentences). Use a friendly, professional tone. Do not make up pricing — say "your quote will include specific pricing" if asked about costs.`
 
-serve(async (req) => {
+export async function handler(req: FnRequest) {
   if (req.method === "OPTIONS") {
     return { statusCode: 204, body: "",  headers: corsHeaders(req)  };
   }
@@ -131,4 +138,4 @@ serve(async (req) => {
       headers: { ...corsHeaders(req), "Content-Type": "application/json" },
     })
   }
-})
+}

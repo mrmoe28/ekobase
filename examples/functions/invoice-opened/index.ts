@@ -54,4 +54,4 @@ export async function handler(req: FnRequest) {
       "Pragma": "no-cache",
     },
   })
-})
+}
