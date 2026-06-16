@@ -1,11 +1,10 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
+import { createClient } from "@supabase/supabase-js";
 import nodemailer from "npm:nodemailer"
 
-const ALLOWED_ORIGINS = (Deno.env.get("ALLOWED_ORIGINS") || "https://ops.lock28.com,http://localhost:5174,http://localhost:5173,http://192.168.1.128:5174").split(",");
+const ALLOWED_ORIGINS = (process.env["ALLOWED_ORIGINS"] || "https://ops.lock28.com,http://localhost:5174,http://localhost:5173,http://192.168.1.128:5174").split(",");
 
 function corsHeaders(req: Request) {
-  const origin = req.headers.get("origin") || "";
+  const origin = (req.headers["origin"] as string | undefined) || "";
   return {
     "Access-Control-Allow-Origin": ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0],
     "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -18,8 +17,8 @@ async function sendEmailViaSendGrid(params: {
   html: string
   fromName: string
 }) {
-  const apiKey = Deno.env.get("SENDGRID_API_KEY")
-  const fromEmail = Deno.env.get("FROM_EMAIL") || Deno.env.get("GMAIL_USER")
+  const apiKey = process.env["SENDGRID_API_KEY"]
+  const fromEmail = process.env["FROM_EMAIL"] || process.env["GMAIL_USER"]
   if (!apiKey) throw new Error("SENDGRID_API_KEY is not configured")
   if (!fromEmail) throw new Error("FROM_EMAIL is not configured")
 
@@ -49,8 +48,8 @@ async function sendEmailViaGmailSmtp(params: {
   html: string
   fromName: string
 }) {
-  const user = Deno.env.get("GMAIL_USER")
-  const pass = Deno.env.get("GMAIL_APP_PASSWORD")
+  const user = process.env["GMAIL_USER"]
+  const pass = process.env["GMAIL_APP_PASSWORD"]
   if (!user || !pass) throw new Error("GMAIL_USER or GMAIL_APP_PASSWORD is not configured")
 
   const transporter = nodemailer.createTransport({
@@ -86,8 +85,8 @@ async function sendNotificationEmail(params: {
 }
 
 async function sendTelegramNotification(body: string) {
-  const token = Deno.env.get("TELEGRAM_BOT_TOKEN")
-  const chatId = Deno.env.get("TELEGRAM_CHAT_ID")
+  const token = process.env["TELEGRAM_BOT_TOKEN"]
+  const chatId = process.env["TELEGRAM_CHAT_ID"]
   if (!token || !chatId) {
     console.log("[Telegram] skipped — TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID missing")
     return { sent: false, skipped: "missing_telegram_config" }
@@ -118,15 +117,15 @@ async function sendOwnerSms(params: {
     .eq("user_id", params.userId)
     .maybeSingle()
 
-  const notifyPhone = settings?.notify_phone || Deno.env.get("OWNER_NOTIFY_PHONE")
+  const notifyPhone = settings?.notify_phone || process.env["OWNER_NOTIFY_PHONE"]
   if (!notifyPhone || settings?.notify_on_form_submitted === false) {
     return { sent: false, skipped: "disabled_or_no_phone" }
   }
 
-  const sid = Deno.env.get("TWILIO_ACCOUNT_SID")
-  const token = Deno.env.get("TWILIO_AUTH_TOKEN")
-  const messagingServiceSid = Deno.env.get("TWILIO_MESSAGING_SERVICE_SID")
-  const from = Deno.env.get("TWILIO_FROM_NUMBER") || Deno.env.get("TWILIO_PHONE_NUMBER")
+  const sid = process.env["TWILIO_ACCOUNT_SID"]
+  const token = process.env["TWILIO_AUTH_TOKEN"]
+  const messagingServiceSid = process.env["TWILIO_MESSAGING_SERVICE_SID"]
+  const from = process.env["TWILIO_FROM_NUMBER"] || process.env["TWILIO_PHONE_NUMBER"]
   if (!sid || !token || (!from && !messagingServiceSid)) {
     console.error("Twilio SMS config missing")
     return { sent: false, skipped: "missing_twilio_config" }
@@ -164,15 +163,15 @@ function findField(data: Record<string, any>, ...patterns: string[]) {
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders(req) })
+    return { statusCode: 204, body: "",  headers: corsHeaders(req)  };
   }
 
   try {
     // Auth check
-    const authHeader = req.headers.get("Authorization") || "";
+    const authHeader = (req.headers["Authorization"] as string | undefined) || "";
     const supabaseAuth = createClient(
-      Deno.env.get("SUPABASE_URL") || "",
-      Deno.env.get("SUPABASE_ANON_KEY") || "",
+      process.env["SUPABASE_URL"] || "",
+      process.env["SUPABASE_ANON_KEY"] || "",
       { global: { headers: { Authorization: authHeader } } }
     );
     const { data: { user } } = await supabaseAuth.auth.getUser();
@@ -182,11 +181,11 @@ serve(async (req) => {
       });
     }
 
-    const { form_id, submission_data, scheduled_date, deposit_info, image_urls } = await req.json()
+    const { form_id, submission_data, scheduled_date, deposit_info, image_urls } = (req.body as Record<string, unknown>)
 
     const supabaseAdmin = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+      process.env["SUPABASE_URL"]!,
+      process.env["SUPABASE_SERVICE_ROLE_KEY"]!
     )
 
     // Get form title and owner
@@ -275,8 +274,8 @@ serve(async (req) => {
 
     // Create Google Calendar event if a booking date exists
     if (scheduled_date) {
-      const supabaseUrl = Deno.env.get("SUPABASE_URL")!
-      const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+      const supabaseUrl = process.env["SUPABASE_URL"]!
+      const serviceKey = process.env["SUPABASE_SERVICE_ROLE_KEY"]!
       const clientName = findField(submission_data, "name", "client", "customer", "contact") || "New Client"
       const address = findField(submission_data, "address", "location", "site")
       const calRes = await fetch(supabaseUrl + "/functions/v1/create-calendar-event", {

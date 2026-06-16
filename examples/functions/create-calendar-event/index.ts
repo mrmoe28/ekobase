@@ -1,11 +1,10 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
-import { encode as base64url } from "https://deno.land/std@0.168.0/encoding/base64url.ts"
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
+const base64url = (buf: Uint8Array) => Buffer.from(buf).toString("base64url");
+import { createClient } from "@supabase/supabase-js";
 
-const ALLOWED_ORIGINS = (Deno.env.get("ALLOWED_ORIGINS") || "https://ops.lock28.com,http://localhost:5174,http://localhost:5173,http://192.168.1.128:5174").split(",");
+const ALLOWED_ORIGINS = (process.env["ALLOWED_ORIGINS"] || "https://ops.lock28.com,http://localhost:5174,http://localhost:5173,http://192.168.1.128:5174").split(",");
 
 function corsHeaders(req: Request) {
-  const origin = req.headers.get("origin") || "";
+  const origin = (req.headers["origin"] as string | undefined) || "";
   return {
     "Access-Control-Allow-Origin": ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0],
     "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -16,8 +15,8 @@ function corsHeaders(req: Request) {
 
 async function getUserAccessToken(refreshToken: string): Promise<string | null> {
   try {
-    const clientId = Deno.env.get("GOOGLE_CLIENT_ID")
-    const clientSecret = Deno.env.get("GOOGLE_CLIENT_SECRET")
+    const clientId = process.env["GOOGLE_CLIENT_ID"]
+    const clientSecret = process.env["GOOGLE_CLIENT_SECRET"]
     if (!clientId || !clientSecret) return null
 
     const res = await fetch("https://oauth2.googleapis.com/token", {
@@ -75,14 +74,14 @@ async function getAccessToken(sa: { client_email: string; private_key: string })
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders(req) })
+    return { statusCode: 204, body: "",  headers: corsHeaders(req)  };
   }
 
   // ── JWT Auth ──
-  const authHeader = req.headers.get("Authorization") || "";
+  const authHeader = (req.headers["Authorization"] as string | undefined) || "";
   const supabaseAuth = createClient(
-    Deno.env.get("SUPABASE_URL") || "",
-    Deno.env.get("SUPABASE_ANON_KEY") || "",
+    process.env["SUPABASE_URL"] || "",
+    process.env["SUPABASE_ANON_KEY"] || "",
     { global: { headers: { Authorization: authHeader } } }
   );
   const { data: { user } } = await supabaseAuth.auth.getUser();
@@ -93,7 +92,7 @@ serve(async (req) => {
   }
 
   try {
-    const { user_id, summary, description, date, location } = await req.json()
+    const { user_id, summary, description, date, location } = (req.body as Record<string, unknown>)
     if (!date) throw new Error("date is required")
 
     if (user_id && user_id !== user.id) {
@@ -103,8 +102,8 @@ serve(async (req) => {
     }
 
     const supabaseAdmin = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+      process.env["SUPABASE_URL"]!,
+      process.env["SUPABASE_SERVICE_ROLE_KEY"]!
     )
 
     // Get calendar ID and user's refresh token
@@ -139,7 +138,7 @@ serve(async (req) => {
       token = await getUserAccessToken(userRefreshToken)
     }
     if (!token) {
-      const saKey = Deno.env.get("GOOGLE_SERVICE_ACCOUNT_KEY")
+      const saKey = process.env["GOOGLE_SERVICE_ACCOUNT_KEY"]
       if (!saKey) throw new Error("No auth method available: no user OAuth token and no service account key")
       const sa = JSON.parse(saKey)
       token = await getAccessToken(sa)

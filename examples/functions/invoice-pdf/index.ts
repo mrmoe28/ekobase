@@ -1,22 +1,29 @@
-import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { createClient } from "jsr:@supabase/supabase-js@2";
-import { jsPDF } from "npm:jspdf@2.5.2";
+type FnRequest = {
+  method: string;
+  headers: Record<string, string | string[] | undefined>;
+  body: unknown;
+  query: unknown;
+};
+
+import { createClient } from "@supabase/supabase-js";
+// TODO: install jspdf in functions-runner package.json
+// import { jsPDF } from "jspdf";
 
 function esc(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
-Deno.serve(async (req: Request) => {
-  const url = new URL(req.url);
+export async function handler(req: FnRequest) {
+  const url = new URL("http://localhost" + (req.headers["x-forwarded-uri"] as string || "/"));
   const invoiceId = url.searchParams.get("id");
 
   if (!invoiceId) {
-    return new Response("Missing invoice id", { status: 400 });
+    return { statusCode: 400, body: "Missing invoice id" };
   }
 
   const supabase = createClient(
-    Deno.env.get("SUPABASE_URL") || "",
-    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || ""
+    process.env["SUPABASE_URL"] || "",
+    process.env["SUPABASE_SERVICE_ROLE_KEY"] || ""
   );
 
   // Load invoice
@@ -27,7 +34,7 @@ Deno.serve(async (req: Request) => {
     .single();
 
   if (!invoice) {
-    return new Response("Invoice not found", { status: 404 });
+    return { statusCode: 404, body: "Invoice not found" };
   }
 
   // Load line items

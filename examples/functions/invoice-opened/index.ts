@@ -1,4 +1,11 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
+type FnRequest = {
+  method: string;
+  headers: Record<string, string | string[] | undefined>;
+  body: unknown;
+  query: unknown;
+};
+
+import { createClient } from "@supabase/supabase-js";
 
 // 1x1 transparent PNG pixel
 const PIXEL = new Uint8Array([
@@ -10,8 +17,8 @@ const PIXEL = new Uint8Array([
   0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
 ])
 
-Deno.serve(async (req) => {
-  const url = new URL(req.url)
+export async function handler(req: FnRequest) {
+  const url = new URL("http://localhost" + (req.headers["x-forwarded-uri"] as string || "/"))
   const invoiceId = url.searchParams.get("id")
 
   if (!invoiceId) {
@@ -20,8 +27,8 @@ Deno.serve(async (req) => {
     })
   }
 
-  const supabaseUrl = Deno.env.get("SUPABASE_URL")!
-  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+  const supabaseUrl = process.env["SUPABASE_URL"]!
+  const serviceRoleKey = process.env["SUPABASE_SERVICE_ROLE_KEY"]!
   const supabase = createClient(supabaseUrl, serviceRoleKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   })

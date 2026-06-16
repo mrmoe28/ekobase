@@ -1,10 +1,9 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
+import { createClient } from "@supabase/supabase-js";
 
-const ALLOWED_ORIGINS = (Deno.env.get("ALLOWED_ORIGINS") || "https://ops.lock28.com,http://localhost:5174,http://localhost:5173,http://192.168.1.128:5174").split(",");
+const ALLOWED_ORIGINS = (process.env["ALLOWED_ORIGINS"] || "https://ops.lock28.com,http://localhost:5174,http://localhost:5173,http://192.168.1.128:5174").split(",");
 
 function corsHeaders(req: Request) {
-  const origin = req.headers.get("origin") || "";
+  const origin = (req.headers["origin"] as string | undefined) || "";
   return {
     "Access-Control-Allow-Origin": ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0],
     "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, mcp-session-id",
@@ -150,16 +149,16 @@ function text(data: unknown) {
 
 // ── Main handler ─────────────────────────────────────────────────────────────
 serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders(req) })
+  if (req.method === "OPTIONS") return { statusCode: 204, body: "",  headers: corsHeaders(req)  };
   if (req.method !== "POST") return new Response("Method Not Allowed", { status: 405, headers: corsHeaders(req) })
 
   // ── Auth ──────────────────────────────────────────────────────────────────
-  const rawKey = (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "").trim()
+  const rawKey = ((req.headers["Authorization"] as string | undefined) ?? "").replace(/^Bearer\s+/i, "").trim()
   if (!rawKey) return jsonRpcErr(req, null, -32001, "Missing Authorization header", 401)
 
   const admin = createClient(
-    Deno.env.get("SUPABASE_URL")!,
-    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+    process.env["SUPABASE_URL"]!,
+    process.env["SUPABASE_SERVICE_ROLE_KEY"]!,
   )
 
   const keyHash = await hashKey(rawKey)
@@ -181,7 +180,7 @@ serve(async (req) => {
   // ── Parse body ────────────────────────────────────────────────────────────
   let body: { id?: unknown; method?: string; params?: Record<string, unknown> }
   try {
-    body = await req.json()
+    body = (req.body as Record<string, unknown>)
   } catch {
     return jsonRpcErr(req, null, -32700, "Parse error", 400)
   }
@@ -315,7 +314,7 @@ serve(async (req) => {
 
       // navigate
       if (toolName === "navigate") {
-        const appUrl = Deno.env.get("APP_URL") ?? "https://ops.lock28.com"
+        const appUrl = process.env["APP_URL"] ?? "https://ops.lock28.com"
         let url = `${appUrl}?tab=${args.tab}`
         if (args.id) url += `&id=${args.id}`
         return jsonRpc(req, id, {

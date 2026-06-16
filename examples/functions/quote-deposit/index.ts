@@ -1,15 +1,14 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
+import { createClient } from "@supabase/supabase-js";
 
-const ALLOWED_ORIGINS = (Deno.env.get("ALLOWED_ORIGINS") || "https://ops.lock28.com,http://localhost:5174,http://localhost:5173,http://192.168.1.128:5174").split(",")
-const SQUARE_ENV = Deno.env.get("SQUARE_ENVIRONMENT") || "production"
+const ALLOWED_ORIGINS = (process.env["ALLOWED_ORIGINS"] || "https://ops.lock28.com,http://localhost:5174,http://localhost:5173,http://192.168.1.128:5174").split(",")
+const SQUARE_ENV = process.env["SQUARE_ENVIRONMENT"] || "production"
 const SQUARE_API = SQUARE_ENV === "sandbox"
   ? "https://connect.squareupsandbox.com"
   : "https://connect.squareup.com"
 const SQUARE_VERSION = "2025-01-23"
 
 function corsHeaders(req: Request) {
-  const origin = req.headers.get("origin") || ""
+  const origin = (req.headers["origin"] as string | undefined) || ""
   return {
     "Access-Control-Allow-Origin": ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0],
     "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -61,7 +60,7 @@ async function resolveSquareProfile(admin: ReturnType<typeof createClient>, jobI
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders(req) })
+    return { statusCode: 204, body: "",  headers: corsHeaders(req)  };
   }
 
   if (req.method !== "POST") {
@@ -72,14 +71,14 @@ serve(async (req) => {
   }
 
   try {
-    const { source_id, amount_cents, job_id, client_name, email } = await req.json()
+    const { source_id, amount_cents, job_id, client_name, email } = (req.body as Record<string, unknown>)
 
     if (!source_id) throw new Error("source_id is required")
     if (!amount_cents || Number(amount_cents) <= 0) throw new Error("amount_cents must be positive")
 
     const admin = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+      process.env["SUPABASE_URL"]!,
+      process.env["SUPABASE_SERVICE_ROLE_KEY"]!,
     )
 
     const profile = await resolveSquareProfile(admin, typeof job_id === "string" ? job_id : null)

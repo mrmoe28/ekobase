@@ -1,10 +1,9 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
+import { createClient } from "@supabase/supabase-js";
 
-const ALLOWED_ORIGINS = (Deno.env.get("ALLOWED_ORIGINS") || "https://ops.lock28.com,http://localhost:5174,http://localhost:5173,http://192.168.1.128:5174").split(",");
+const ALLOWED_ORIGINS = (process.env["ALLOWED_ORIGINS"] || "https://ops.lock28.com,http://localhost:5174,http://localhost:5173,http://192.168.1.128:5174").split(",");
 
 function corsHeaders(req: Request) {
-  const origin = req.headers.get("origin") || "";
+  const origin = (req.headers["origin"] as string | undefined) || "";
   return {
     "Access-Control-Allow-Origin": ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0],
     "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -18,8 +17,8 @@ async function refreshAccessToken(refreshToken: string): Promise<string> {
     body: new URLSearchParams({
       grant_type: "refresh_token",
       refresh_token: refreshToken,
-      client_id: Deno.env.get("GOOGLE_CLIENT_ID")!,
-      client_secret: Deno.env.get("GOOGLE_CLIENT_SECRET")!,
+      client_id: process.env["GOOGLE_CLIENT_ID"]!,
+      client_secret: process.env["GOOGLE_CLIENT_SECRET"]!,
     }),
   })
   const data = await res.json()
@@ -29,14 +28,14 @@ async function refreshAccessToken(refreshToken: string): Promise<string> {
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders(req) })
+    return { statusCode: 204, body: "",  headers: corsHeaders(req)  };
   }
 
   // ── JWT Auth ──
-  const authHeader = req.headers.get("Authorization") || "";
+  const authHeader = (req.headers["Authorization"] as string | undefined) || "";
   const supabaseAuth = createClient(
-    Deno.env.get("SUPABASE_URL") || "",
-    Deno.env.get("SUPABASE_ANON_KEY") || "",
+    process.env["SUPABASE_URL"] || "",
+    process.env["SUPABASE_ANON_KEY"] || "",
     { global: { headers: { Authorization: authHeader } } }
   );
   const { data: { user } } = await supabaseAuth.auth.getUser();
@@ -47,7 +46,7 @@ serve(async (req) => {
   }
 
   try {
-    const { user_id, access_token } = await req.json()
+    const { user_id, access_token } = (req.body as Record<string, unknown>)
     if (!user_id) throw new Error("user_id is required")
 
     if (user_id && user_id !== user.id) {
@@ -57,8 +56,8 @@ serve(async (req) => {
     }
 
     const supabaseAdmin = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+      process.env["SUPABASE_URL"]!,
+      process.env["SUPABASE_SERVICE_ROLE_KEY"]!
     )
 
     // Use provided access token or refresh from stored token

@@ -1,5 +1,4 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
+import { createClient } from "@supabase/supabase-js";
 
 type IncomingLead = {
   sourceRecordId: string
@@ -27,7 +26,7 @@ type Payload = {
 }
 
 function corsHeaders(req: Request) {
-  const origin = req.headers.get("origin") || "*"
+  const origin = (req.headers["origin"] as string | undefined) || "*"
   return {
     "Access-Control-Allow-Origin": origin,
     "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-leadboss-signature",
@@ -63,15 +62,15 @@ function normalizePhone(phone: string | null) {
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders(req) })
+    return { statusCode: 204, body: "",  headers: corsHeaders(req)  };
   }
 
   try {
-    const secret = Deno.env.get("LEADBOSS_SHARED_SECRET")
+    const secret = process.env["LEADBOSS_SHARED_SECRET"]
     if (!secret) throw new Error("LEADBOSS_SHARED_SECRET not configured")
 
-    const signature = req.headers.get("X-LeadBoss-Signature") || ""
-    const rawBody = await req.text()
+    const signature = (req.headers["X-LeadBoss-Signature"] as string | undefined) || ""
+    const rawBody = (typeof req.body === "string" ? req.body : JSON.stringify(req.body ?? {}))
     const expected = await hmacHex(secret, rawBody)
     if (signature !== expected) {
       return new Response(JSON.stringify({ error: "Invalid signature" }), {
@@ -89,11 +88,11 @@ serve(async (req) => {
     }
 
     const admin = createClient(
-      Deno.env.get("SUPABASE_URL") || "",
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "",
+      process.env["SUPABASE_URL"] || "",
+      process.env["SUPABASE_SERVICE_ROLE_KEY"] || "",
     )
 
-    let ownerUserId = Deno.env.get("LEADBOSS_DEFAULT_OWNER_USER_ID") || null
+    let ownerUserId = process.env["LEADBOSS_DEFAULT_OWNER_USER_ID"] || null
 
     if (payload.ownerEmail) {
       const usersRes = await admin.auth.admin.listUsers({ page: 1, perPage: 1000 })

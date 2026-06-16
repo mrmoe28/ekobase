@@ -26,6 +26,36 @@ function isHttpResponseShape(value: unknown): value is HttpResponseShape {
   );
 }
 
+function isWebResponse(value: unknown): value is Response {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as { status?: unknown }).status === "number" &&
+    typeof (value as { body?: unknown }).body !== "undefined"
+  );
+}
+
+async function sendOutcome(reply: any, outcome: { result: unknown }) {
+  if (isHttpResponseShape(outcome.result)) {
+    reply.code(outcome.result.statusCode);
+    if (outcome.result.headers) {
+      for (const [k, v] of Object.entries(outcome.result.headers)) {
+        reply.header(k, v);
+      }
+    }
+    return reply.send(outcome.result.body ?? "");
+  }
+
+  if (isWebResponse(outcome.result)) {
+    reply.code(outcome.result.status);
+    outcome.result.headers.forEach((v: string, k: string) => reply.header(k, v));
+    const body = await outcome.result.text();
+    return reply.send(body);
+  }
+
+  return reply.send(outcome.result);
+}
+
 const port = Number(process.env.FUNCTIONS_PORT ?? 54322);
 const functionsDir =
   process.env.FUNCTIONS_DIR ??
@@ -63,16 +93,7 @@ app.all("/projects/:projectId/:slug", async (request, reply) => {
     return reply.code(500).send({ error: `Function ${slug} has no handler export` });
   }
 
-  if (isHttpResponseShape(outcome.result)) {
-    reply.code(outcome.result.statusCode);
-    if (outcome.result.headers) {
-      for (const [k, v] of Object.entries(outcome.result.headers)) {
-        reply.header(k, v);
-      }
-    }
-    return reply.send(outcome.result.body ?? "");
-  }
-  return reply.send(outcome.result);
+  return sendOutcome(reply, outcome);
 });
 
 app.all("/:functionName", async (request, reply) => {
@@ -92,16 +113,7 @@ app.all("/:functionName", async (request, reply) => {
     return reply.code(500).send({ error: `Function ${functionName} has no handler export` });
   }
 
-  if (isHttpResponseShape(outcome.result)) {
-    reply.code(outcome.result.statusCode);
-    if (outcome.result.headers) {
-      for (const [k, v] of Object.entries(outcome.result.headers)) {
-        reply.header(k, v);
-      }
-    }
-    return reply.send(outcome.result.body ?? "");
-  }
-  return reply.send(outcome.result);
+  return sendOutcome(reply, outcome);
 });
 
 // Eager-load all function modules so the first request to each endpoint

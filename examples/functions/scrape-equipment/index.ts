@@ -1,10 +1,16 @@
+type FnRequest = {
+  method: string;
+  headers: Record<string, string | string[] | undefined>;
+  body: unknown;
+  query: unknown;
+};
+
 // Equipment scraper edge function.
 // Crawls dealer/vendor sites for inverter, battery, optimizer and micro-inverter products
 // from EG4, Fortress Power, SolarEdge, Enphase, Tesla, Generac, Sol-Ark, Schneider, Outback.
 // Up to 10 listing pages per site. Inserts/updates rows in `equipment` and flags new ones.
 
-import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { createClient } from "jsr:@supabase/supabase-js@2";
+import { createClient } from "@supabase/supabase-js";
 
 type Category = "inverter" | "battery" | "optimizer" | "microinverter";
 
@@ -292,10 +298,10 @@ async function crawlTarget(target: ScrapeTarget): Promise<{
   return { products, pagesHit, errors };
 }
 
-Deno.serve(async (_req: Request) => {
+export async function handler(req: FnRequest) {
   const supabase = createClient(
-    Deno.env.get("SUPABASE_URL") || "",
-    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "",
+    process.env["SUPABASE_URL"] || "",
+    process.env["SUPABASE_SERVICE_ROLE_KEY"] || "",
   );
 
   const { data: run } = await supabase

@@ -1,10 +1,9 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
+import { createClient } from "@supabase/supabase-js";
 
-const ALLOWED_ORIGINS = (Deno.env.get("ALLOWED_ORIGINS") || "https://ops.lock28.com,http://localhost:5174,http://localhost:5173,http://192.168.1.128:5174").split(",");
+const ALLOWED_ORIGINS = (process.env["ALLOWED_ORIGINS"] || "https://ops.lock28.com,http://localhost:5174,http://localhost:5173,http://192.168.1.128:5174").split(",");
 
 function corsHeaders(req: Request) {
-  const origin = req.headers.get("origin") || "";
+  const origin = (req.headers["origin"] as string | undefined) || "";
   return {
     "Access-Control-Allow-Origin": ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0],
     "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -12,20 +11,20 @@ function corsHeaders(req: Request) {
 }
 
 serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders(req) })
+  if (req.method === "OPTIONS") return { statusCode: 204, body: "",  headers: corsHeaders(req)  };
 
   try {
-    const SQUARE_ENV = Deno.env.get("SQUARE_ENVIRONMENT") || "sandbox"
+    const SQUARE_ENV = process.env["SQUARE_ENVIRONMENT"] || "sandbox"
     const baseUrl = SQUARE_ENV === "production"
       ? "https://connect.squareup.com" : "https://connect.squareupsandbox.com"
 
     const supabase = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+      process.env["SUPABASE_URL"]!,
+      process.env["SUPABASE_SERVICE_ROLE_KEY"]!
     )
 
     // Auth
-    const authHeader = req.headers.get("Authorization")
+    const authHeader = (req.headers["Authorization"] as string | undefined)
     if (!authHeader) throw new Error("Missing authorization")
     const { data: { user }, error: authErr } = await supabase.auth.getUser(authHeader.replace("Bearer ", ""))
     if (authErr || !user) throw new Error("Unauthorized")
@@ -42,7 +41,7 @@ serve(async (req) => {
     const { data: platform } = await supabase
       .from("profiles").select("square_access_token")
       .eq("company_email", "ekosolarize@gmail.com").single()
-    const SQUARE_TOKEN = platform?.square_access_token || Deno.env.get("SQUARE_ACCESS_TOKEN")
+    const SQUARE_TOKEN = platform?.square_access_token || process.env["SQUARE_ACCESS_TOKEN"]
     if (!SQUARE_TOKEN) throw new Error("Platform Square not configured")
 
     // Cancel in Square (cancels at end of current billing period)
@@ -84,8 +83,6 @@ serve(async (req) => {
     })
   } catch (e) {
     console.error("cancel-subscription error:", e)
-    return new Response(JSON.stringify({ error: String(e) }), {
-      status: 500, headers: { ...corsHeaders(req), "Content-Type": "application/json" }
-    })
+    return { statusCode: 500, body: JSON.stringify({ error: String(e) }), headers: {  ...corsHeaders(req), "Content-Type": "application/json"  } };
   }
 })

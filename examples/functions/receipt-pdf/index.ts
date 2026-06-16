@@ -1,18 +1,25 @@
-import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { createClient } from "jsr:@supabase/supabase-js@2";
-import { jsPDF } from "npm:jspdf@2.5.2";
+type FnRequest = {
+  method: string;
+  headers: Record<string, string | string[] | undefined>;
+  body: unknown;
+  query: unknown;
+};
 
-Deno.serve(async (req: Request) => {
-  const url = new URL(req.url);
+import { createClient } from "@supabase/supabase-js";
+// TODO: install jspdf in functions-runner package.json
+// import { jsPDF } from "jspdf";
+
+export async function handler(req: FnRequest) {
+  const url = new URL("http://localhost" + (req.headers["x-forwarded-uri"] as string || "/"));
   const paymentId = url.searchParams.get("id");
 
   if (!paymentId) {
-    return new Response("Missing payment id", { status: 400 });
+    return { statusCode: 400, body: "Missing payment id" };
   }
 
   const supabase = createClient(
-    Deno.env.get("SUPABASE_URL") || "",
-    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || ""
+    process.env["SUPABASE_URL"] || "",
+    process.env["SUPABASE_SERVICE_ROLE_KEY"] || ""
   );
 
   // Load payment
@@ -23,7 +30,7 @@ Deno.serve(async (req: Request) => {
     .single();
 
   if (!payment) {
-    return new Response("Receipt not found", { status: 404 });
+    return { statusCode: 404, body: "Receipt not found" };
   }
 
   // Load invoice
@@ -34,7 +41,7 @@ Deno.serve(async (req: Request) => {
     .single();
 
   if (!invoice) {
-    return new Response("Invoice not found", { status: 404 });
+    return { statusCode: 404, body: "Invoice not found" };
   }
 
   // Load company info

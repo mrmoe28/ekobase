@@ -1,10 +1,9 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
+import { createClient } from "@supabase/supabase-js";
 
-const ALLOWED_ORIGINS = (Deno.env.get("ALLOWED_ORIGINS") || "https://ops.lock28.com,http://localhost:5174,http://localhost:5173,http://192.168.1.128:5174").split(",")
+const ALLOWED_ORIGINS = (process.env["ALLOWED_ORIGINS"] || "https://ops.lock28.com,http://localhost:5174,http://localhost:5173,http://192.168.1.128:5174").split(",")
 
 function corsHeaders(req: Request) {
-  const origin = req.headers.get("origin") || ""
+  const origin = (req.headers["origin"] as string | undefined) || ""
   return {
     "Access-Control-Allow-Origin": ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0],
     "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -12,13 +11,13 @@ function corsHeaders(req: Request) {
 }
 
 serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders(req) })
+  if (req.method === "OPTIONS") return { statusCode: 204, body: "",  headers: corsHeaders(req)  };
 
   try {
-    const authHeader = req.headers.get("Authorization") || ""
+    const authHeader = (req.headers["Authorization"] as string | undefined) || ""
     const supabaseAuth = createClient(
-      Deno.env.get("SUPABASE_URL") || "",
-      Deno.env.get("SUPABASE_ANON_KEY") || "",
+      process.env["SUPABASE_URL"] || "",
+      process.env["SUPABASE_ANON_KEY"] || "",
       { global: { headers: { Authorization: authHeader } } },
     )
     const { data: { user: caller } } = await supabaseAuth.auth.getUser()
@@ -28,12 +27,12 @@ serve(async (req) => {
       })
     }
 
-    const { company_id, email: emailOverride } = await req.json()
+    const { company_id, email: emailOverride } = (req.body as Record<string, unknown>)
     if (!company_id) throw new Error("company_id required")
 
     const supabaseAdmin = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+      process.env["SUPABASE_URL"]!,
+      process.env["SUPABASE_SERVICE_ROLE_KEY"]!,
     )
 
     // Verify caller owns the company
@@ -52,7 +51,7 @@ serve(async (req) => {
     const targetEmail = (emailOverride || company.contact_email || "").trim().toLowerCase()
     if (!targetEmail) throw new Error("No email provided and company has no contact_email")
 
-    const portalUrl = (Deno.env.get("PORTAL_URL") || "https://ops.lock28.com") + "/portal"
+    const portalUrl = (process.env["PORTAL_URL"] || "https://ops.lock28.com") + "/portal"
 
     // Send the invite. Supabase emails the user a magic link that lands
     // them on portalUrl after they set their password.

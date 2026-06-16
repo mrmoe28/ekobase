@@ -1,11 +1,10 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
+import { createClient } from "@supabase/supabase-js";
 import nodemailer from "npm:nodemailer"
 
-const ALLOWED_ORIGINS = (Deno.env.get("ALLOWED_ORIGINS") || "https://ops.lock28.com,http://localhost:5174,http://localhost:5173,http://192.168.1.128:5174").split(",")
+const ALLOWED_ORIGINS = (process.env["ALLOWED_ORIGINS"] || "https://ops.lock28.com,http://localhost:5174,http://localhost:5173,http://192.168.1.128:5174").split(",")
 
 function corsHeaders(req: Request) {
-  const origin = req.headers.get("origin") || ""
+  const origin = (req.headers["origin"] as string | undefined) || ""
   return {
     "Access-Control-Allow-Origin": ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0],
     "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -13,8 +12,8 @@ function corsHeaders(req: Request) {
 }
 
 async function sendEmailViaSendGrid(params: { to: string; subject: string; html: string; fromName: string }) {
-  const apiKey = Deno.env.get("SENDGRID_API_KEY")
-  const fromEmail = Deno.env.get("FROM_EMAIL") || Deno.env.get("GMAIL_USER")
+  const apiKey = process.env["SENDGRID_API_KEY"]
+  const fromEmail = process.env["FROM_EMAIL"] || process.env["GMAIL_USER"]
   if (!apiKey) throw new Error("SENDGRID_API_KEY is not configured")
   if (!fromEmail) throw new Error("FROM_EMAIL is not configured")
   const res = await fetch("https://api.sendgrid.com/v3/mail/send", {
@@ -31,8 +30,8 @@ async function sendEmailViaSendGrid(params: { to: string; subject: string; html:
 }
 
 async function sendEmailViaGmailSmtp(params: { to: string; subject: string; html: string; fromName: string }) {
-  const user = Deno.env.get("GMAIL_USER")
-  const pass = Deno.env.get("GMAIL_APP_PASSWORD")
+  const user = process.env["GMAIL_USER"]
+  const pass = process.env["GMAIL_APP_PASSWORD"]
   if (!user || !pass) throw new Error("GMAIL_USER or GMAIL_APP_PASSWORD missing")
   const transporter = nodemailer.createTransport({
     host: "smtp.gmail.com", port: 465, secure: true, auth: { user, pass },
@@ -69,10 +68,10 @@ function normalizePhone(raw: string | null | undefined): string | null {
 }
 
 async function twilioSend(to: string, body: string) {
-  const sid = Deno.env.get("TWILIO_ACCOUNT_SID")
-  const token = Deno.env.get("TWILIO_AUTH_TOKEN")
-  const messagingServiceSid = Deno.env.get("TWILIO_MESSAGING_SERVICE_SID")
-  const from = Deno.env.get("TWILIO_FROM_NUMBER") || Deno.env.get("TWILIO_PHONE_NUMBER")
+  const sid = process.env["TWILIO_ACCOUNT_SID"]
+  const token = process.env["TWILIO_AUTH_TOKEN"]
+  const messagingServiceSid = process.env["TWILIO_MESSAGING_SERVICE_SID"]
+  const from = process.env["TWILIO_FROM_NUMBER"] || process.env["TWILIO_PHONE_NUMBER"]
   if (!sid || !token || (!from && !messagingServiceSid)) {
     console.error("Twilio env missing")
     return
@@ -97,7 +96,7 @@ async function sendOwnerSms(supabaseAdmin: ReturnType<typeof createClient>, user
     .select("notify_phone, notify_on_form_submitted")
     .eq("user_id", userId)
     .maybeSingle()
-  const phone = normalizePhone((settings as any)?.notify_phone || Deno.env.get("OWNER_NOTIFY_PHONE"))
+  const phone = normalizePhone((settings as any)?.notify_phone || process.env["OWNER_NOTIFY_PHONE"])
   if (!phone || (settings as any)?.notify_on_form_submitted === false) return
   await twilioSend(phone, body)
 }
@@ -129,13 +128,13 @@ const STATUS_HEADER_COLOR: Record<string, string> = {
 }
 
 serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders(req) })
+  if (req.method === "OPTIONS") return { statusCode: 204, body: "",  headers: corsHeaders(req)  };
 
   try {
-    const authHeader = req.headers.get("Authorization") || ""
+    const authHeader = (req.headers["Authorization"] as string | undefined) || ""
     const supabaseAuth = createClient(
-      Deno.env.get("SUPABASE_URL") || "",
-      Deno.env.get("SUPABASE_ANON_KEY") || "",
+      process.env["SUPABASE_URL"] || "",
+      process.env["SUPABASE_ANON_KEY"] || "",
       { global: { headers: { Authorization: authHeader } } },
     )
     const { data: { user } } = await supabaseAuth.auth.getUser()
@@ -145,12 +144,12 @@ serve(async (req) => {
       })
     }
 
-    const { request_id, action } = await req.json()
+    const { request_id, action } = (req.body as Record<string, unknown>)
     if (!request_id || !action) throw new Error("request_id and action required")
 
     const supabaseAdmin = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+      process.env["SUPABASE_URL"]!,
+      process.env["SUPABASE_SERVICE_ROLE_KEY"]!,
     )
 
     const { data: r, error: reqErr } = await supabaseAdmin
@@ -233,7 +232,7 @@ serve(async (req) => {
       const color = STATUS_HEADER_COLOR[r.status] || "#475569"
       const replyLine = r.admin_notes
         ? `<div style="margin-top:12px;padding:12px;background:#f8fafc;border-left:3px solid ${color};color:#334155"><strong>Reply:</strong><br/>${r.admin_notes}</div>` : ""
-      const portalUrl = (Deno.env.get("PORTAL_URL") || "https://ops.lock28.com") + "/portal"
+      const portalUrl = (process.env["PORTAL_URL"] || "https://ops.lock28.com") + "/portal"
 
       const html = `
         <div style="font-family:system-ui,-apple-system,sans-serif;max-width:560px;margin:0 auto">

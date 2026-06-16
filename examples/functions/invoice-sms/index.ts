@@ -1,4 +1,11 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
+type FnRequest = {
+  method: string;
+  headers: Record<string, string | string[] | undefined>;
+  body: unknown;
+  query: unknown;
+};
+
+import { createClient } from "@supabase/supabase-js";
 
 /**
  * Supabase Database Webhook handler.
@@ -23,14 +30,14 @@ type WebhookPayload = {
   old_record: Record<string, unknown> | null
 }
 
-Deno.serve(async (req) => {
+export async function handler(req: FnRequest) {
   if (req.method !== "POST") {
-    return new Response("Method not allowed", { status: 405 })
+    return { statusCode: 405, body: "Method not allowed" };
   }
 
   let body: WebhookPayload
   try {
-    body = await req.json()
+    body = (req.body as Record<string, unknown>)
   } catch {
     return json({ ok: false, reason: "bad_json" }, 200)
   }
@@ -46,8 +53,8 @@ Deno.serve(async (req) => {
   }
 
   const sb = createClient(
-    Deno.env.get("SUPABASE_URL")!,
-    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+    process.env["SUPABASE_URL"]!,
+    process.env["SUPABASE_SERVICE_ROLE_KEY"]!,
     { auth: { persistSession: false, autoRefreshToken: false } },
   )
 
@@ -62,7 +69,7 @@ Deno.serve(async (req) => {
     .eq("user_id", userId)
     .maybeSingle()
 
-  const notifyPhone = settings?.notify_phone || Deno.env.get("OWNER_NOTIFY_PHONE")
+  const notifyPhone = settings?.notify_phone || process.env["OWNER_NOTIFY_PHONE"]
   if (!notifyPhone) {
     return json({ ok: true, skipped: "no_phone" })
   }
@@ -72,13 +79,13 @@ Deno.serve(async (req) => {
     return json({ ok: true, skipped: "event_disabled_or_unsupported" })
   }
 
-  const sid = Deno.env.get("TWILIO_ACCOUNT_SID")
-  const token = Deno.env.get("TWILIO_AUTH_TOKEN")
-  const messagingServiceSid = Deno.env.get("TWILIO_MESSAGING_SERVICE_SID")
-  const from = Deno.env.get("TWILIO_FROM_NUMBER") || Deno.env.get("TWILIO_PHONE_NUMBER")
+  const sid = process.env["TWILIO_ACCOUNT_SID"]
+  const token = process.env["TWILIO_AUTH_TOKEN"]
+  const messagingServiceSid = process.env["TWILIO_MESSAGING_SERVICE_SID"]
+  const from = process.env["TWILIO_FROM_NUMBER"] || process.env["TWILIO_PHONE_NUMBER"]
   if (!sid || !token || (!from && !messagingServiceSid)) {
     console.error("Twilio env missing")
-    return new Response("Twilio config missing", { status: 500 })
+    return { statusCode: 500, body: "Twilio config missing" };
   }
 
   const twilioRes = await fetch(

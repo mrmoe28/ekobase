@@ -1,10 +1,9 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
+import { createClient } from "@supabase/supabase-js";
 
-const ALLOWED_ORIGINS = (Deno.env.get("ALLOWED_ORIGINS") || "https://ops.lock28.com,http://localhost:5174,http://localhost:5173,http://192.168.1.128:5174").split(",");
+const ALLOWED_ORIGINS = (process.env["ALLOWED_ORIGINS"] || "https://ops.lock28.com,http://localhost:5174,http://localhost:5173,http://192.168.1.128:5174").split(",");
 
 function corsHeaders(req: Request) {
-  const origin = req.headers.get("origin") || "";
+  const origin = (req.headers["origin"] as string | undefined) || "";
   return {
     "Access-Control-Allow-Origin": ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0],
     "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -13,17 +12,17 @@ function corsHeaders(req: Request) {
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders(req) })
+    return { statusCode: 204, body: "",  headers: corsHeaders(req)  };
   }
 
   try {
     // Authenticate the user via Supabase JWT
-    const authHeader = req.headers.get("Authorization")
+    const authHeader = (req.headers["Authorization"] as string | undefined)
     if (!authHeader) throw new Error("Missing authorization header")
 
     const supabaseAdmin = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+      process.env["SUPABASE_URL"]!,
+      process.env["SUPABASE_SERVICE_ROLE_KEY"]!
     )
 
     const token = authHeader.replace("Bearer ", "")
@@ -59,10 +58,10 @@ serve(async (req) => {
       await supabaseAdmin.from("chat_rate_limits").insert({ user_id: user.id, request_count: 1, window_start: now.toISOString() })
     }
 
-    const apiKey = Deno.env.get("XAI_API_KEY")
+    const apiKey = process.env["XAI_API_KEY"]
     if (!apiKey) throw new Error("XAI_API_KEY not configured")
 
-    const { messages, tools, temperature = 0.7, max_tokens = 1000 } = await req.json()
+    const { messages, tools, temperature = 0.7, max_tokens = 1000 } = (req.body as Record<string, unknown>)
     if (!messages) throw new Error("messages is required")
 
     const llmRes = await fetch("https://api.x.ai/v1/chat/completions", {

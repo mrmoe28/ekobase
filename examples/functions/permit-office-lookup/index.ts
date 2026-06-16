@@ -1,10 +1,9 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1"
 
-const ALLOWED_ORIGINS = (Deno.env.get("ALLOWED_ORIGINS") || "https://ops.lock28.com,http://localhost:5174,http://localhost:5173,http://192.168.1.128:5174").split(",");
+const ALLOWED_ORIGINS = (process.env["ALLOWED_ORIGINS"] || "https://ops.lock28.com,http://localhost:5174,http://localhost:5173,http://192.168.1.128:5174").split(",");
 
 function corsHeaders(req: Request) {
-  const origin = req.headers.get("origin") || "";
+  const origin = (req.headers["origin"] as string | undefined) || "";
   return {
     "Access-Control-Allow-Origin": ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0],
     "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -287,15 +286,15 @@ async function upsertPermitOffice(
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders(req) })
+    return { statusCode: 204, body: "",  headers: corsHeaders(req)  };
   }
 
   try {
     // Auth check
-    const authHeader = req.headers.get("Authorization") || "";
+    const authHeader = (req.headers["Authorization"] as string | undefined) || "";
     const supabaseAuth = createClient(
-      Deno.env.get("SUPABASE_URL") || "",
-      Deno.env.get("SUPABASE_ANON_KEY") || "",
+      process.env["SUPABASE_URL"] || "",
+      process.env["SUPABASE_ANON_KEY"] || "",
       { global: { headers: { Authorization: authHeader } } }
     );
     const { data: { user } } = await supabaseAuth.auth.getUser();
@@ -305,7 +304,7 @@ serve(async (req) => {
       });
     }
 
-    const { address, force } = await req.json()
+    const { address, force } = (req.body as Record<string, unknown>)
     if (!address || typeof address !== "string") {
       return new Response(
         JSON.stringify({ found: false, error: "address is required" }),
@@ -314,11 +313,11 @@ serve(async (req) => {
     }
 
     // Env vars
-    const googleMapsKey = Deno.env.get("GOOGLE_MAPS_API_KEY")
-    const serperKey = Deno.env.get("SERPER_API_KEY")
-    const anthropicKey = Deno.env.get("ANTHROPIC_API_KEY")
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!
-    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+    const googleMapsKey = process.env["GOOGLE_MAPS_API_KEY"]
+    const serperKey = process.env["SERPER_API_KEY"]
+    const anthropicKey = process.env["ANTHROPIC_API_KEY"]
+    const supabaseUrl = process.env["SUPABASE_URL"]!
+    const supabaseServiceKey = process.env["SUPABASE_SERVICE_ROLE_KEY"]!
 
     if (!googleMapsKey) throw new Error("GOOGLE_MAPS_API_KEY not configured")
     if (!serperKey) throw new Error("SERPER_API_KEY not configured")

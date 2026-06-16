@@ -1,10 +1,9 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
+import { createClient } from "@supabase/supabase-js";
 
-const ALLOWED_ORIGINS = (Deno.env.get("ALLOWED_ORIGINS") || "https://ops.lock28.com,http://localhost:5174,http://localhost:5173,http://192.168.1.128:5174").split(",");
+const ALLOWED_ORIGINS = (process.env["ALLOWED_ORIGINS"] || "https://ops.lock28.com,http://localhost:5174,http://localhost:5173,http://192.168.1.128:5174").split(",");
 
 function corsHeaders(req: Request) {
-  const origin = req.headers.get("origin") || "";
+  const origin = (req.headers["origin"] as string | undefined) || "";
   return {
     "Access-Control-Allow-Origin": ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0],
     "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -12,20 +11,20 @@ function corsHeaders(req: Request) {
 }
 
 serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders(req) })
+  if (req.method === "OPTIONS") return { statusCode: 204, body: "",  headers: corsHeaders(req)  };
 
   try {
-    const SQUARE_ENV = Deno.env.get("SQUARE_ENVIRONMENT") || "sandbox"
+    const SQUARE_ENV = process.env["SQUARE_ENVIRONMENT"] || "sandbox"
     const baseUrl = SQUARE_ENV === "production"
       ? "https://connect.squareup.com" : "https://connect.squareupsandbox.com"
 
     const supabase = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+      process.env["SUPABASE_URL"]!,
+      process.env["SUPABASE_SERVICE_ROLE_KEY"]!
     )
 
     // Auth: get user from JWT
-    const authHeader = req.headers.get("Authorization")
+    const authHeader = (req.headers["Authorization"] as string | undefined)
     if (!authHeader) throw new Error("Missing authorization")
     const { data: { user }, error: authErr } = await supabase.auth.getUser(authHeader.replace("Bearer ", ""))
     if (authErr || !user) throw new Error("Unauthorized")
@@ -35,12 +34,10 @@ serve(async (req) => {
       .from("subscriptions").select("status")
       .eq("user_id", user.id).single()
     if (existing && (existing.status === "active" || existing.status === "founder")) {
-      return new Response(JSON.stringify({ error: "Already subscribed" }), {
-        status: 400, headers: { ...corsHeaders(req), "Content-Type": "application/json" }
-      })
+      return { statusCode: 400, body: JSON.stringify({ error: "Already subscribed" }), headers: {  ...corsHeaders(req), "Content-Type": "application/json"  } };
     }
 
-    const { source_id } = await req.json()
+    const { source_id } = (req.body as Record<string, unknown>)
     if (!source_id) throw new Error("source_id is required (card token from Square SDK)")
 
     // Get platform Square token (from profiles of the platform owner, or from secrets)
@@ -49,9 +46,9 @@ serve(async (req) => {
       .from("profiles").select("square_access_token, square_location_id")
       .eq("company_email", "ekosolarize@gmail.com").single()
 
-    const SQUARE_TOKEN = platform?.square_access_token || Deno.env.get("SQUARE_ACCESS_TOKEN")
-    const LOCATION_ID = platform?.square_location_id || Deno.env.get("SQUARE_LOCATION_ID")
-    const PLAN_VARIATION_ID = Deno.env.get("SQUARE_PLAN_VARIATION_ID")
+    const SQUARE_TOKEN = platform?.square_access_token || process.env["SQUARE_ACCESS_TOKEN"]
+    const LOCATION_ID = platform?.square_location_id || process.env["SQUARE_LOCATION_ID"]
+    const PLAN_VARIATION_ID = process.env["SQUARE_PLAN_VARIATION_ID"]
 
     if (!SQUARE_TOKEN) throw new Error("Platform Square not configured")
     if (!PLAN_VARIATION_ID) throw new Error("Subscription plan not configured")
@@ -143,8 +140,8 @@ serve(async (req) => {
 
     // 6. Send admin notification email
     try {
-      const GMAIL_USER = Deno.env.get("GMAIL_USER")
-      const GMAIL_APP_PASSWORD = Deno.env.get("GMAIL_APP_PASSWORD")
+      const GMAIL_USER = process.env["GMAIL_USER"]
+      const GMAIL_APP_PASSWORD = process.env["GMAIL_APP_PASSWORD"]
       if (GMAIL_USER && GMAIL_APP_PASSWORD) {
         const emailBody = [
           `From: EKO Solar Ops <${GMAIL_USER}>`,
@@ -166,11 +163,11 @@ serve(async (req) => {
 
         // Simple SMTP via fetch to Gmail API or fallback
         // Using Supabase Edge Function invoke pattern
-        const notifyUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/send-notification`
+        const notifyUrl = `${process.env["SUPABASE_URL"]}/functions/v1/send-notification`
         await fetch(notifyUrl, {
           method: "POST",
           headers: {
-            "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+            "Authorization": `Bearer ${process.env["SUPABASE_SERVICE_ROLE_KEY"]}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
@@ -192,8 +189,6 @@ serve(async (req) => {
     })
   } catch (e) {
     console.error("create-subscription error:", e)
-    return new Response(JSON.stringify({ error: String(e) }), {
-      status: 500, headers: { ...corsHeaders(req), "Content-Type": "application/json" }
-    })
+    return { statusCode: 500, body: JSON.stringify({ error: String(e) }), headers: {  ...corsHeaders(req), "Content-Type": "application/json"  } };
   }
 })

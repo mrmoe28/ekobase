@@ -1,12 +1,11 @@
 // Daily-run edge function that emails quote recipients an expiration reminder
 // (via the existing send-email edge function, which uses the user's Google
 // account) and logs an in-app notification for the owner. Scheduled via pg_cron.
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
+import { createClient } from "@supabase/supabase-js";
 
-const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!
-const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
-const PUBLIC_SITE = Deno.env.get("PUBLIC_SITE_URL") || "https://ops.lock28.com"
+const SUPABASE_URL = process.env["SUPABASE_URL"]!
+const SERVICE_ROLE = process.env["SUPABASE_SERVICE_ROLE_KEY"]!
+const PUBLIC_SITE = process.env["PUBLIC_SITE_URL"] || "https://ops.lock28.com"
 
 function daysUntil(dateStr: string): number {
   const ms = new Date(dateStr + "T23:59:59Z").getTime() - Date.now()

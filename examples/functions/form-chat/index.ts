@@ -1,10 +1,9 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
+import { createClient } from "@supabase/supabase-js";
 
-const ALLOWED_ORIGINS = (Deno.env.get("ALLOWED_ORIGINS") || "https://ops.lock28.com,http://localhost:5174,http://localhost:5173,http://192.168.1.128:5174").split(",");
+const ALLOWED_ORIGINS = (process.env["ALLOWED_ORIGINS"] || "https://ops.lock28.com,http://localhost:5174,http://localhost:5173,http://192.168.1.128:5174").split(",");
 
 function corsHeaders(req: Request) {
-  const origin = req.headers.get("origin") || "";
+  const origin = (req.headers["origin"] as string | undefined) || "";
   return {
     "Access-Control-Allow-Origin": ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0],
     "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -53,15 +52,15 @@ Keep responses short (2-4 sentences). Use a friendly, professional tone. Do not 
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders(req) })
+    return { statusCode: 204, body: "",  headers: corsHeaders(req)  };
   }
 
   try {
     // Auth check
-    const authHeader = req.headers.get("Authorization") || "";
+    const authHeader = (req.headers["Authorization"] as string | undefined) || "";
     const supabaseAuth = createClient(
-      Deno.env.get("SUPABASE_URL") || "",
-      Deno.env.get("SUPABASE_ANON_KEY") || "",
+      process.env["SUPABASE_URL"] || "",
+      process.env["SUPABASE_ANON_KEY"] || "",
       { global: { headers: { Authorization: authHeader } } }
     );
     const { data: { user } } = await supabaseAuth.auth.getUser();
@@ -71,7 +70,7 @@ serve(async (req) => {
       });
     }
 
-    const { messages, user_id } = await req.json()
+    const { messages, user_id } = (req.body as Record<string, unknown>)
     if (!user_id) throw new Error("user_id is required")
     if (!messages || !Array.isArray(messages)) throw new Error("messages array is required")
 
@@ -83,8 +82,8 @@ serve(async (req) => {
     }
 
     const supabase = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+      process.env["SUPABASE_URL"]!,
+      process.env["SUPABASE_SERVICE_ROLE_KEY"]!,
     )
 
     // Look up form owner's API key, fall back to platform key
@@ -94,7 +93,7 @@ serve(async (req) => {
       .eq("id", user_id)
       .single()
 
-    const apiKey = profile?.openai_api_key || Deno.env.get("OPENAI_API_KEY")
+    const apiKey = profile?.openai_api_key || process.env["OPENAI_API_KEY"]
     if (!apiKey) throw new Error("No API key configured")
 
     // Limit conversation to last 10 messages to control costs

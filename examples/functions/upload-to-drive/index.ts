@@ -1,11 +1,10 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
-import { encode as base64url } from "https://deno.land/std@0.168.0/encoding/base64url.ts"
-import { createClient } from "jsr:@supabase/supabase-js@2"
+const base64url = (buf: Uint8Array) => Buffer.from(buf).toString("base64url");
+import { createClient } from "@supabase/supabase-js";
 
-const ALLOWED_ORIGINS = (Deno.env.get("ALLOWED_ORIGINS") || "https://ops.lock28.com,http://localhost:5174,http://localhost:5173,http://192.168.1.128:5174").split(",");
+const ALLOWED_ORIGINS = (process.env["ALLOWED_ORIGINS"] || "https://ops.lock28.com,http://localhost:5174,http://localhost:5173,http://192.168.1.128:5174").split(",");
 
 function corsHeaders(req: Request) {
-  const origin = req.headers.get("origin") || "";
+  const origin = (req.headers["origin"] as string | undefined) || "";
   return {
     "Access-Control-Allow-Origin": ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0],
     "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -106,14 +105,14 @@ async function uploadFile(token: string, file: File, filename: string, folderId:
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders(req) })
+    return { statusCode: 204, body: "",  headers: corsHeaders(req)  };
   }
 
   // ── Auth: verify the caller is a logged-in Supabase user ──
-  const authHeader = req.headers.get("Authorization") || "";
+  const authHeader = (req.headers["Authorization"] as string | undefined) || "";
   const supabaseAuth = createClient(
-    Deno.env.get("SUPABASE_URL") || "",
-    Deno.env.get("SUPABASE_ANON_KEY") || "",
+    process.env["SUPABASE_URL"] || "",
+    process.env["SUPABASE_ANON_KEY"] || "",
     { global: { headers: { Authorization: authHeader } } }
   );
   const { data: { user } } = await supabaseAuth.auth.getUser();
@@ -131,11 +130,11 @@ serve(async (req) => {
     const subfolder = (formData.get("subfolder") as string) || "Uploads"
     const filename = (formData.get("filename") as string) || file.name
 
-    const saKey = Deno.env.get("GOOGLE_SERVICE_ACCOUNT_KEY")
+    const saKey = process.env["GOOGLE_SERVICE_ACCOUNT_KEY"]
     if (!saKey) throw new Error("GOOGLE_SERVICE_ACCOUNT_KEY not configured")
     const sa = JSON.parse(saKey)
 
-    const rootFolderId = Deno.env.get("GOOGLE_DRIVE_FOLDER_ID") || "root"
+    const rootFolderId = process.env["GOOGLE_DRIVE_FOLDER_ID"] || "root"
 
     const token = await getAccessToken(sa)
     const folderId = await findOrCreateFolder(token, subfolder, rootFolderId)

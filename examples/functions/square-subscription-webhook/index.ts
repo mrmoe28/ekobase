@@ -1,16 +1,15 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
+import { createClient } from "@supabase/supabase-js";
 
 serve(async (req) => {
   // Webhooks are POST only, no CORS needed (Square servers call this)
   if (req.method !== "POST") {
-    return new Response("Method not allowed", { status: 405 })
+    return { statusCode: 405, body: "Method not allowed" };
   }
 
   try {
-    const rawBody = await req.text()
-    const signature = req.headers.get("x-square-hmacsha256-signature")
-    const WEBHOOK_KEY = Deno.env.get("SQUARE_WEBHOOK_SIGNATURE_KEY")
+    const rawBody = (typeof req.body === "string" ? req.body : JSON.stringify(req.body ?? {}))
+    const signature = (req.headers["x-square-hmacsha256-signature"] as string | undefined)
+    const WEBHOOK_KEY = process.env["SQUARE_WEBHOOK_SIGNATURE_KEY"]
 
     // Verify webhook signature (mandatory)
     if (!WEBHOOK_KEY) {
@@ -21,12 +20,12 @@ serve(async (req) => {
     }
     if (!signature) {
       console.error("Missing webhook signature header")
-      return new Response("Missing signature", { status: 401 })
+      return { statusCode: 401, body: "Missing signature" };
     }
     // Square signs `notification_url + body` with the EXACT public URL
     // registered in the Square dashboard. Hardcode the slug here — do NOT
-    // derive from req.url (Supabase edge runtime exposes an internal path).
-    const notificationUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/square-subscription-webhook`
+    // derive from (req.headers["x-forwarded-uri"] as string || "/") (Supabase edge runtime exposes an internal path).
+    const notificationUrl = `${process.env["SUPABASE_URL"]}/functions/v1/square-subscription-webhook`
     const payload = notificationUrl + rawBody
     const key = await crypto.subtle.importKey(
       "raw", new TextEncoder().encode(WEBHOOK_KEY),
@@ -36,7 +35,7 @@ serve(async (req) => {
     const computed = btoa(String.fromCharCode(...new Uint8Array(sig)))
     if (computed !== signature) {
       console.error("Webhook signature mismatch")
-      return new Response("Invalid signature", { status: 401 })
+      return { statusCode: 401, body: "Invalid signature" };
     }
 
     const event = JSON.parse(rawBody)
@@ -44,8 +43,8 @@ serve(async (req) => {
     const data = event.data?.object
 
     const supabase = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+      process.env["SUPABASE_URL"]!,
+      process.env["SUPABASE_SERVICE_ROLE_KEY"]!
     )
 
     // Handle subscription events
@@ -254,7 +253,7 @@ serve(async (req) => {
                     </div>
                     ${isDeposit ? '<div style="background:#ecfdf5;border:1px solid #a7f3d0;border-radius:8px;padding:12px;text-align:center;margin-bottom:20px;"><p style="color:#059669;font-weight:700;margin:0;font-size:14px;">DEPOSIT PAID IN FULL</p></div>' : isFullyPaid ? '<div style="background:#ecfdf5;border:1px solid #a7f3d0;border-radius:8px;padding:12px;text-align:center;margin-bottom:20px;"><p style="color:#059669;font-weight:700;margin:0;font-size:14px;">PAID IN FULL</p></div>' : ""}
                     <div style="text-align:center;margin:20px 0;">
-                      <a href="${Deno.env.get("SUPABASE_URL")}/functions/v1/receipt-pdf?id=${insertedPayment?.id || ""}" style="display:inline-block;background:#1a1a2e;color:white;font-weight:600;font-size:13px;padding:12px 28px;border-radius:10px;text-decoration:none;">Download Receipt PDF</a>
+                      <a href="${process.env["SUPABASE_URL"]}/functions/v1/receipt-pdf?id=${insertedPayment?.id || ""}" style="display:inline-block;background:#1a1a2e;color:white;font-weight:600;font-size:13px;padding:12px 28px;border-radius:10px;text-decoration:none;">Download Receipt PDF</a>
                     </div>
                     <p style="color:#9ca3af;font-size:11px;text-align:center;margin:12px 0 0;">This is your official payment receipt.</p>
                     <p style="color:#d1d5db;font-size:10px;text-align:center;margin:8px 0 0;">Questions? Contact ${ownerEmail || "us"}</p>
@@ -366,9 +365,9 @@ async function recordPaymentAttempt(supabase: ReturnType<typeof createClient>, p
         .eq("user_id", userId)
         .maybeSingle()
       if (settings?.notify_phone) {
-        const sid = Deno.env.get("TWILIO_ACCOUNT_SID")
-        const token = Deno.env.get("TWILIO_AUTH_TOKEN")
-        const from = Deno.env.get("TWILIO_FROM_NUMBER")
+        const sid = process.env["TWILIO_ACCOUNT_SID"]
+        const token = process.env["TWILIO_AUTH_TOKEN"]
+        const from = process.env["TWILIO_FROM_NUMBER"]
         if (sid && token && from) {
           const dollars = ((payment?.amount_money?.amount || 0) / 100).toFixed(2)
           const tail = card.last_4 ? ` (${card.card_brand || "card"} ${card.last_4})` : ""
