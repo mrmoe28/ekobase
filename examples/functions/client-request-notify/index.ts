@@ -1,12 +1,12 @@
+import { createClient } from "@supabase/supabase-js";
+import nodemailer from "npm:nodemailer"
+
 type FnRequest = {
   method: string;
   headers: Record<string, string | string[] | undefined>;
   body: unknown;
   query: unknown;
 };
-
-import { createClient } from "@supabase/supabase-js";
-import nodemailer from "npm:nodemailer"
 
 const ALLOWED_ORIGINS = (process.env["ALLOWED_ORIGINS"] || "https://ops.lock28.com,http://localhost:5174,http://localhost:5173,http://192.168.1.128:5174").split(",")
 

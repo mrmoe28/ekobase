@@ -1,11 +1,11 @@
+import { createClient } from "@supabase/supabase-js";
+
 type FnRequest = {
   method: string;
   headers: Record<string, string | string[] | undefined>;
   body: unknown;
   query: unknown;
 };
-
-import { createClient } from "@supabase/supabase-js";
 
 export async function handler(req: FnRequest) {
   // Webhooks are POST only, no CORS needed (Square servers call this)

@@ -1,11 +1,11 @@
+import { createClient } from "@supabase/supabase-js";
+
 type FnRequest = {
   method: string;
   headers: Record<string, string | string[] | undefined>;
   body: unknown;
   query: unknown;
 };
-
-import { createClient } from "@supabase/supabase-js";
 
 /**
  * Supabase Database Webhook handler.
