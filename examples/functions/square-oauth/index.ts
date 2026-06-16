@@ -5,17 +5,15 @@ const SQUARE_APP_SECRET = process.env.SQUARE_APP_SECRET!
 const SQUARE_ENV = process.env.SQUARE_ENVIRONMENT || "production"
 const APP_URL = process.env.APP_URL || "https://ops.lock28.com"
 const SUPABASE_URL = process.env.SUPABASE_URL!
-const PUBLIC_SUPABASE_URL =
-  process.env.PUBLIC_SUPABASE_URL ||
-  process.env.SUPABASE_PUBLIC_URL ||
-  SUPABASE_URL
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!
+const DATA_SUPABASE_URL = process.env.DATA_SUPABASE_URL || SUPABASE_URL
+const DATA_SUPABASE_SERVICE_ROLE_KEY = process.env.DATA_SUPABASE_SERVICE_ROLE_KEY || SUPABASE_SERVICE_ROLE_KEY
 
 const BASE_URL = SQUARE_ENV === "production"
   ? "https://connect.squareup.com"
   : "https://connect.squareupsandbox.com"
 
-const REDIRECT_URI = `${PUBLIC_SUPABASE_URL.replace(/\/$/, "")}/functions/v1/square-oauth?action=callback`
+const REDIRECT_URI = `${SUPABASE_URL}/functions/v1/square-oauth?action=callback`
 
 const SCOPES = [
   "MERCHANT_PROFILE_READ",
@@ -68,7 +66,7 @@ export async function handler(req: any) {
       return { statusCode: 302, headers: { Location: `${APP_URL}?square=error` }, body: "" }
     }
 
-    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+    const supabase = createClient(DATA_SUPABASE_URL, DATA_SUPABASE_SERVICE_ROLE_KEY)
 
     await supabase.from("profiles").update({
       square_access_token: tokenData.access_token,
