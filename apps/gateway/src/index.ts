@@ -39,6 +39,7 @@ await app.register(cors, {
     "content-profile",
     "prefer",
     "range",
+    "x-upsert",
     "x-client-info",
     "x-request-id",
     "x-api-key",
