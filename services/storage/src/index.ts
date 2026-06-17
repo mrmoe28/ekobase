@@ -312,8 +312,9 @@ app.addHook("onRequest", async (request, reply) => {
   request.projectId = projectId;
 });
 
-app.addHook("onSend", async (_request, reply) => {
+app.addHook("onSend", async (_request, reply, payload) => {
   reply.header("Access-Control-Allow-Origin", "*");
+  return payload;
 });
 
 // Parse multipart as raw Buffer so binary image data is not corrupted.

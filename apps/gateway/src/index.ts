@@ -27,7 +27,20 @@ const pool = new pg.Pool({ connectionString: databaseUrl });
 
 const app = Fastify({ logger: true });
 
-await app.register(cors, { origin: true, credentials: true });
+await app.register(cors, {
+  origin: true,
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: [
+    "authorization",
+    "apikey",
+    "content-type",
+    "x-client-info",
+    "x-request-id",
+    "x-api-key",
+  ],
+  maxAge: 86400,
+});
 
 type AuthUser = {
   id: string;
@@ -555,6 +568,14 @@ await app.register(async (storage) => {
     upstream: storageUrl,
     prefix: "/storage/v1",
     rewritePrefix: "",
+    replyOptions: {
+      onResponse: (_request, reply, _res) => {
+        reply.header("Access-Control-Allow-Origin", "*");
+        reply.header("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
+        reply.header("Access-Control-Allow-Headers", "apikey,authorization,content-type,x-client-info,x-request-id");
+        reply.header("Access-Control-Max-Age", "86400");
+      },
+    },
   });
 });
 
@@ -571,6 +592,14 @@ await app.register(async (storage) => {
     upstream: storageUrl,
     prefix: "/p/:projectId/storage/v1",
     rewritePrefix: "",
+    replyOptions: {
+      onResponse: (_request, reply, _res) => {
+        reply.header("Access-Control-Allow-Origin", "*");
+        reply.header("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
+        reply.header("Access-Control-Allow-Headers", "apikey,authorization,content-type,x-client-info,x-request-id");
+        reply.header("Access-Control-Max-Age", "86400");
+      },
+    },
   });
 });
 
