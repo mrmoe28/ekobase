@@ -38,6 +38,7 @@ await app.register(cors, {
     "x-client-info",
     "x-request-id",
     "x-api-key",
+    "x-supabase-api-version",
   ],
   maxAge: 86400,
 });
