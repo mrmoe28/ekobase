@@ -425,22 +425,21 @@ app.get<{ Params: { bucketName: string } }>(
     const { bucketName } = request.params;
     const fileName = (request.params["*"] as string) || "";
 
-    const result = await pgClient.query<Bucket>(
-      "select * from storage.buckets where name = $1 and public = true",
-      [bucketName],
+    const result = await pgClient.query<Bucket & { content_type: string | null }>(
+      `select b.*, f.content_type
+       from storage.files f
+       join storage.buckets b on b.id = f.bucket_id
+       where b.name = $1 and b.public = true and f.name = $2
+       order by f.created_at desc
+       limit 1`,
+      [bucketName, fileName],
     );
     const bucket = result.rows[0];
-    if (!bucket) return reply.code(404).send({ error: "Bucket not found" });
+    if (!bucket) return reply.code(404).send({ error: "File not found" });
 
     const fileData = await downloadFile(bucket, fileName);
     if (!fileData) return reply.code(404).send({ error: "File not found" });
-
-    const fileResult = await pgClient.query<FileMetadata>(
-      "select content_type from storage.files where bucket_id = $1 and name = $2",
-      [bucket.id, fileName],
-    );
-
-    const contentType = fileResult.rows[0]?.content_type || "application/octet-stream";
+    const contentType = bucket.content_type || "application/octet-stream";
     reply.header("Content-Type", contentType);
     reply.header("Content-Length", fileData.length);
     return reply.send(fileData);
