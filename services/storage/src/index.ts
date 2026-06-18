@@ -4,7 +4,7 @@ import { readdir, readFile, stat, unlink, rm } from "node:fs/promises";
 import { join } from "node:path";
 import Fastify from "fastify";
 import { Pool } from "pg";
-import { jwtVerify } from "jose";
+import { jwtVerify, SignJWT } from "jose";
 import { DEFAULT_JWT_SECRET } from "@local/jwt";
 
 const port = Number(process.env.STORAGE_PORT ?? 54324);
@@ -45,6 +45,12 @@ type FileMetadata = {
   updated_at: Date;
 };
 
+type SignedObjectClaims = {
+  bucketName: string;
+  fileName: string;
+  project_id: string;
+};
+
 function isUserScopedPathAllowed(path: string, userSub: string): boolean {
   const firstSegment = path.split("/")[0] ?? "";
   return firstSegment === userSub;
@@ -70,6 +76,37 @@ async function verifyJwt(token: string): Promise<AuthClaims | null> {
       role: (payload.role as "anon" | "authenticated" | "service_role") || "anon",
       email: payload.email as string | undefined,
       project_id: payload.project_id as string | undefined,
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function signObjectToken(claims: SignedObjectClaims, expiresInSeconds: number): Promise<string> {
+  return new SignJWT(claims)
+    .setProtectedHeader({ alg: "HS256", typ: "JWT" })
+    .setIssuedAt()
+    .setExpirationTime(`${expiresInSeconds}s`)
+    .sign(new TextEncoder().encode(DEFAULT_JWT_SECRET));
+}
+
+async function verifyObjectToken(token: string): Promise<SignedObjectClaims | null> {
+  try {
+    const { payload } = await jwtVerify(
+      token,
+      new TextEncoder().encode(DEFAULT_JWT_SECRET),
+    );
+    if (
+      typeof payload.bucketName !== "string" ||
+      typeof payload.fileName !== "string" ||
+      typeof payload.project_id !== "string"
+    ) {
+      return null;
+    }
+    return {
+      bucketName: payload.bucketName,
+      fileName: payload.fileName,
+      project_id: payload.project_id,
     };
   } catch {
     return null;
@@ -299,6 +336,7 @@ app.addHook("onRequest", async (request, reply) => {
   if (request.url === "/health") return;
   // Public bucket objects do not require authentication
   if (request.url.startsWith("/object/public/")) return;
+  if (request.url.startsWith("/object/sign/") && request.method !== "POST") return;
 
   const claims = await getClaimsFromAuth(request.headers.authorization);
   if (!claims) {
@@ -408,6 +446,77 @@ app.get<{ Params: { bucketName: string } }>(
     return reply.send(fileData);
   },
 );
+
+app.post<{ Params: { bucketName: string } }>(
+  "/object/sign/:bucketName/*",
+  async (request, reply) => {
+    const user = request.user as AuthClaims;
+    const projectId = request.projectId as string;
+    const { bucketName } = request.params;
+    const fileName = (request.params["*"] as string) || "";
+    const expiresIn = Number((request.body as { expiresIn?: number } | undefined)?.expiresIn ?? 60);
+
+    const bucket = await getBucket(bucketName, projectId);
+    if (!bucket) return reply.code(404).send({ error: "Bucket not found" });
+
+    if (user.role !== "service_role") {
+      if (bucket.private_user_scoped) {
+        if (!isUserScopedPathAllowed(fileName, user.sub)) {
+          return reply.code(403).send({ error: "Access denied" });
+        }
+      } else if (!bucket.public && bucket.owner_id !== user.sub) {
+        return reply.code(403).send({ error: "Access denied" });
+      }
+    }
+
+    const fileData = await downloadFile(bucket, fileName);
+    if (!fileData) return reply.code(404).send({ error: "File not found" });
+
+    const ttl = Number.isFinite(expiresIn) ? Math.min(Math.max(expiresIn, 1), 604800) : 60;
+    const token = await signObjectToken({ bucketName, fileName, project_id: projectId }, ttl);
+    return reply.send({
+      signedURL: `/object/sign/${bucketName}/${fileName}?token=${encodeURIComponent(token)}`,
+    });
+  },
+);
+
+app.route<{ Params: { bucketName: string } }>({
+  method: ["GET", "HEAD"],
+  url: "/object/sign/:bucketName/*",
+  handler: async (request, reply) => {
+    const { bucketName } = request.params;
+    const fileName = (request.params["*"] as string) || "";
+    const token = (request.query as { token?: string } | undefined)?.token;
+    if (!token) return reply.code(401).send({ error: "Missing token" });
+
+    const claims = await verifyObjectToken(token);
+    if (!claims) return reply.code(401).send({ error: "Invalid token" });
+    if (claims.bucketName !== bucketName || claims.fileName !== fileName) {
+      return reply.code(401).send({ error: "Token does not match requested object" });
+    }
+
+    const bucket = await getBucket(bucketName, claims.project_id);
+    if (!bucket) return reply.code(404).send({ error: "Bucket not found" });
+
+    const fileData = await downloadFile(bucket, fileName);
+    if (!fileData) return reply.code(404).send({ error: "File not found" });
+
+    const fileResult = await pgClient.query<FileMetadata>(
+      "select content_type from storage.files where bucket_id = $1 and name = $2",
+      [bucket.id, fileName],
+    );
+
+    const contentType = fileResult.rows[0]?.content_type || "application/octet-stream";
+    reply.header("Content-Type", contentType);
+    reply.header("Content-Length", fileData.length);
+
+    if (request.method === "HEAD") {
+      return reply.code(200).send();
+    }
+
+    return reply.send(fileData);
+  },
+});
 
 app.get<{ Params: { bucketName: string } }>(
   "/object/:bucketName/*",
