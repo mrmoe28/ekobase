@@ -574,16 +574,8 @@ await app.register(async (storage) => {
     upstream: storageUrl,
     prefix: "/storage/v1",
     rewritePrefix: "",
-    replyOptions: {
-      onResponse: (_request, reply, _res) => {
-        reply.header("Access-Control-Allow-Origin", "*");
-        reply.header("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
-        reply.header("Access-Control-Allow-Headers", "apikey,authorization,content-type,x-client-info,x-request-id");
-        reply.header("Access-Control-Max-Age", "86400");
-      },
-    },
   });
-});
+}, { bodyLimit: 50 * 1024 * 1024 });
 
 await app.register(async (storage) => {
   storage.addHook("onRequest", async (request, reply) => {
@@ -598,14 +590,6 @@ await app.register(async (storage) => {
     upstream: storageUrl,
     prefix: "/p/:projectId/storage/v1",
     rewritePrefix: "",
-    replyOptions: {
-      onResponse: (_request, reply, _res) => {
-        reply.header("Access-Control-Allow-Origin", "*");
-        reply.header("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
-        reply.header("Access-Control-Allow-Headers", "apikey,authorization,content-type,x-client-info,x-request-id");
-        reply.header("Access-Control-Max-Age", "86400");
-      },
-    },
   });
 });
 
