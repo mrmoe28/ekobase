@@ -83,9 +83,10 @@ async function searchSerper(
   apiKey: string
 ): Promise<string[]> {
   const queries = [
-    `site:.gov ${county} building permit office contact hours`,
-    `site:.gov ${county} solar permit requirements fees documents`,
-    `${county} county permit portal online application solar`,
+    `site:.gov ${county} electrical permit office contact hours solar`,
+    `site:.gov ${county} solar electrical permit requirements fees documents`,
+    `${county} county electrical permit portal online application solar`,
+    `${county} county building electrical solar permit office`,
   ]
 
   const allUrls: string[] = []
@@ -202,7 +203,7 @@ async function extractWithClaude(
 ): Promise<Record<string, unknown>> {
   const systemPrompt = `You are a data extraction assistant. Extract structured permit office information for ${county} from the provided web page text. Return ONLY valid JSON with no markdown formatting, no code fences, and no explanation.`
 
-  const userPrompt = `Extract the following fields from the text below for the ${county} building/solar permit office. If a field is not found, use null. For arrays, use empty arrays if not found.
+  const userPrompt = `Extract the following fields from the text below for the ${county} electrical/solar permit office. Focus only on electrical and solar permitting information. If a field is not found, use null. For arrays, use empty arrays if not found.
 
 Required JSON structure:
 {
