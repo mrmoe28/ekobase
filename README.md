@@ -37,6 +37,7 @@ Useful commands:
 ./scripts/check-edge-config.sh
 sudo ./scripts/restore-cloudflared.sh
 sudo ./scripts/install-public-edge-monitor.sh
+sudo ./scripts/install-supabase-clone-services.sh
 ```
 
 ## Codex Sandbox Note
@@ -48,5 +49,5 @@ reachable; `curl` and unsandboxed shell commands can connect normally.
 For Codex-run verification, use:
 
 ```bash
-bash -ic 'cd /home/mrmoe28/Project\ X/Supabase\ Clone && pnpm test:e2e:local'
+bash -ic 'cd /home/mrmoe28/Project\ X/Ekobase && pnpm test:e2e:local'
 ```

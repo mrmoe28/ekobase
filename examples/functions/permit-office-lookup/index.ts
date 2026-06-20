@@ -9,7 +9,7 @@ import { createClient } from "@supabase/supabase-js";
 
 const ALLOWED_ORIGINS = (process.env["ALLOWED_ORIGINS"] || "https://ops.lock28.com,http://localhost:5174,http://localhost:5173,http://192.168.1.128:5174").split(",");
 
-function corsHeaders(req: Request) {
+function corsHeaders(req: FnRequest) {
   const origin = (req.headers["origin"] as string | undefined) || "";
   return {
     "Access-Control-Allow-Origin": ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0],
@@ -49,7 +49,7 @@ async function resolveCounty(
 // ── Check permit_offices cache ──
 
 async function checkCache(
-  supabase: ReturnType<typeof createClient>,
+  supabase: any,
   county: string,
   force: boolean
 ): Promise<Record<string, unknown> | null> {
@@ -254,7 +254,7 @@ ${combinedText}`
 // ── Upsert into permit_offices table ──
 
 async function upsertPermitOffice(
-  supabase: ReturnType<typeof createClient>,
+  supabase: any,
   county: string,
   countyDisplay: string,
   extracted: Record<string, unknown>,
@@ -298,25 +298,32 @@ export async function handler(req: FnRequest) {
 
   try {
     // Auth check
-    const authHeader = (req.headers["Authorization"] as string | undefined) || "";
+    // Auth check (headers are lowercased by Fastify)
+    const rawAuth = req.headers["authorization"] ?? req.headers["Authorization"];
+    const authHeader = Array.isArray(rawAuth) ? rawAuth[0] : (rawAuth || "");
+    // Use internal gateway URL to avoid Cloudflare loopback timeouts
+    const supabaseInternalUrl = process.env["SUPABASE_INTERNAL_URL"] || process.env["EKOBASE_URL"] || process.env["SUPABASE_URL"] || "";
     const supabaseAuth = createClient(
-      process.env["SUPABASE_URL"] || "",
+      supabaseInternalUrl,
       process.env["SUPABASE_ANON_KEY"] || "",
       { global: { headers: { Authorization: authHeader } } }
     );
     const { data: { user } } = await supabaseAuth.auth.getUser();
     if (!user) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401, headers: { ...corsHeaders(req), "Content-Type": "application/json" },
-      });
+      return {
+        statusCode: 401,
+        body: { error: "Unauthorized" },
+        headers: { ...corsHeaders(req), "Content-Type": "application/json" },
+      };
     }
 
     const { address, force } = (req.body as Record<string, unknown>)
     if (!address || typeof address !== "string") {
-      return new Response(
-        JSON.stringify({ found: false, error: "address is required" }),
-        { status: 400, headers: { ...corsHeaders(req), "Content-Type": "application/json" } }
-      )
+      return {
+        statusCode: 400,
+        body: { found: false, error: "address is required" },
+        headers: { ...corsHeaders(req), "Content-Type": "application/json" },
+      };
     }
 
     // Env vars
@@ -338,10 +345,11 @@ export async function handler(req: FnRequest) {
     // Step 2: Check cache
     const cached = await checkCache(supabase, county, !!force)
     if (cached) {
-      return new Response(
-        JSON.stringify({ found: true, cached: true, data: cached }),
-        { headers: { ...corsHeaders(req), "Content-Type": "application/json" } }
-      )
+      return {
+        statusCode: 200,
+        body: { found: true, cached: true, data: cached },
+        headers: { ...corsHeaders(req), "Content-Type": "application/json" },
+      };
     }
 
     // Step 3: Search for permit office info
@@ -355,10 +363,11 @@ export async function handler(req: FnRequest) {
       .join("\n\n")
 
     if (combinedText.length < 200) {
-      return new Response(
-        JSON.stringify({ found: false, error: "Could not retrieve enough content from search results" }),
-        { headers: { ...corsHeaders(req), "Content-Type": "application/json" } }
-      )
+      return {
+        statusCode: 200,
+        body: { found: false, error: "Could not retrieve enough content from search results" },
+        headers: { ...corsHeaders(req), "Content-Type": "application/json" },
+      };
     }
 
     // Step 5: Extract structured data via Claude
@@ -369,15 +378,17 @@ export async function handler(req: FnRequest) {
     const row = await upsertPermitOffice(supabase, county, countyDisplay, extracted, sourceUrl)
 
     // Step 7: Return result
-    return new Response(
-      JSON.stringify({ found: true, cached: false, data: row }),
-      { headers: { ...corsHeaders(req), "Content-Type": "application/json" } }
-    )
+    return {
+      statusCode: 200,
+      body: { found: true, cached: false, data: row },
+      headers: { ...corsHeaders(req), "Content-Type": "application/json" },
+    };
   } catch (e) {
     console.error("permit-office-lookup error:", e)
-    return new Response(
-      JSON.stringify({ found: false, error: String(e) }),
-      { headers: { ...corsHeaders(req), "Content-Type": "application/json" } }
-    )
+    return {
+      statusCode: 500,
+      body: { found: false, error: String(e) },
+      headers: { ...corsHeaders(req), "Content-Type": "application/json" },
+    };
   }
 }

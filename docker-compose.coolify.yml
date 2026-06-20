@@ -128,6 +128,10 @@ services:
       APP_URL: ${APP_URL:-https://ops.lock28.com}
       # ── hawk (transcription) ──
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      # ── permit-office-lookup ──
+      GOOGLE_MAPS_API_KEY: ${GOOGLE_MAPS_API_KEY}
+      SERPER_API_KEY: ${SERPER_API_KEY}
+      SUPABASE_INTERNAL_URL: ${SUPABASE_INTERNAL_URL:-http://gateway:54321}
       WHISPER_URL: ${WHISPER_URL:-http://192.168.1.194:8000}
     networks:
       - coolify
