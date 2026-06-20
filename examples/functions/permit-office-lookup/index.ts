@@ -19,31 +19,35 @@ function corsHeaders(req: FnRequest) {
 
 const CACHE_MAX_AGE_DAYS = 30
 
-// ── Resolve county from address via Google Maps Geocoding ──
+// ── Resolve county from address via Nominatim (OpenStreetMap) ──
 
 async function resolveCounty(
-  address: string,
-  apiKey: string
+  address: string
 ): Promise<{ county: string; countyDisplay: string }> {
-  const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address)}&key=${apiKey}`
-  const res = await fetch(url)
-  const data = await res.json()
+  const url = `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&q=${encodeURIComponent(address)}`
+  const res = await fetch(url, {
+    headers: { "User-Agent": "EkoSolarOps/1.0 (ekosolarize@gmail.com)" }
+  })
+  const data = await res.json() as Array<Record<string, unknown>>
 
-  if (data.status !== "OK" || !data.results?.length) {
-    throw new Error(`Geocoding failed: ${data.status} — ${data.error_message || "no results"}`)
+  if (!Array.isArray(data) || data.length === 0) {
+    throw new Error("Geocoding failed: no results from Nominatim")
   }
 
-  for (const result of data.results) {
-    for (const component of result.address_components || []) {
-      if (component.types?.includes("administrative_area_level_2")) {
-        const display = component.long_name
-        const county = display.toLowerCase().replace(/\s+/g, "-")
-        return { county, countyDisplay: display }
-      }
-    }
+  const first = data[0]
+  const addr = (first.address as Record<string, string>) || {}
+
+  let display = addr.county || addr.administrative_area_level_2 || addr.state_district || ""
+  if (!display) {
+    throw new Error("Could not resolve county from address — no county field in Nominatim response")
+  }
+  // Ensure display ends with " County" for US counties
+  if (!display.toLowerCase().includes("county")) {
+    display = display + " County"
   }
 
-  throw new Error("Could not resolve county from address — no administrative_area_level_2 found")
+  const county = display.toLowerCase().replace(/\s+/g, "-")
+  return { county, countyDisplay: display }
 }
 
 // ── Check permit_offices cache ──
@@ -278,12 +282,24 @@ async function upsertPermitOffice(
     scraped_at: new Date().toISOString(),
   }
 
-  const { error } = await supabase
+  // Manual upsert: check if row exists, then update or insert
+  const { data: existing } = await supabase
     .from("permit_offices")
-    .upsert(row, { onConflict: "county" })
+    .select("id")
+    .eq("county", county)
+    .limit(1)
 
-  if (error) {
-    throw new Error(`Supabase upsert error: ${error.message}`)
+  if (existing && existing.length > 0) {
+    const { error } = await supabase
+      .from("permit_offices")
+      .update(row)
+      .eq("county", county)
+    if (error) throw new Error(`Supabase update error: ${error.message}`)
+  } else {
+    const { error } = await supabase
+      .from("permit_offices")
+      .insert(row)
+    if (error) throw new Error(`Supabase insert error: ${error.message}`)
   }
 
   return row
@@ -327,20 +343,20 @@ export async function handler(req: FnRequest) {
     }
 
     // Env vars
-    const googleMapsKey = process.env["GOOGLE_MAPS_API_KEY"]
     const serperKey = process.env["SERPER_API_KEY"]
     const anthropicKey = process.env["ANTHROPIC_API_KEY"]
-    const supabaseUrl = process.env["SUPABASE_URL"]!
-    const supabaseServiceKey = process.env["SUPABASE_SERVICE_ROLE_KEY"]!
+    const supabaseUrl = process.env["SUPABASE_URL"] || ""
+    const supabaseServiceKey = process.env["SUPABASE_SERVICE_ROLE_KEY"] || ""
 
-    if (!googleMapsKey) throw new Error("GOOGLE_MAPS_API_KEY not configured")
     if (!serperKey) throw new Error("SERPER_API_KEY not configured")
     if (!anthropicKey) throw new Error("ANTHROPIC_API_KEY not configured")
+    if (!supabaseUrl) throw new Error("SUPABASE_URL not configured")
+    if (!supabaseServiceKey) throw new Error("SUPABASE_SERVICE_ROLE_KEY not configured")
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
     // Step 1: Resolve county from address
-    const { county, countyDisplay } = await resolveCounty(address, googleMapsKey)
+    const { county, countyDisplay } = await resolveCounty(address)
 
     // Step 2: Check cache
     const cached = await checkCache(supabase, county, !!force)
@@ -370,8 +386,26 @@ export async function handler(req: FnRequest) {
       };
     }
 
-    // Step 5: Extract structured data via Claude
-    const extracted = await extractWithClaude(combinedText, countyDisplay, anthropicKey)
+    // Step 5: Extract structured data — fallback when Claude is unavailable
+    let extracted: Record<string, unknown>
+    try {
+      extracted = await extractWithClaude(combinedText, countyDisplay, anthropicKey)
+    } catch (aiErr) {
+      console.warn("Claude extraction failed, using raw fallback:", aiErr)
+      extracted = {
+        office_name: null,
+        address: null,
+        phone: null,
+        email: null,
+        office_hours: null,
+        permit_types: [],
+        submission_instructions: `AI extraction unavailable. Raw search results below. Review manually.\n\nSources: ${urls.join(", ")}`,
+        portal_url: urls[0] || null,
+        required_documents: urls.map((u, i) => ({ name: `Source ${i + 1}`, url: u })),
+        processing_time: null,
+        fees_raw: combinedText.slice(0, 8000),
+      }
+    }
 
     // Step 6: Upsert into database
     const sourceUrl = urls[0] || ""
