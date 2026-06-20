@@ -256,6 +256,99 @@ ${combinedText}`
   return JSON.parse(jsonStr)
 }
 
+// ── Fallback: Extract structured data using regex (no AI) ──
+
+function cleanHtmlText(text: string): string {
+  return text
+    .replace(/Skip to main content/gi, "")
+    .replace(/Enable accessibility for low vision/gi, "")
+    .replace(/Open the accessibility menu/gi, "")
+    .replace(/Before sharing sensitive[^\n]*/gi, "")
+    .replace(/\[Image[^\]]*\]/g, "")
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
+    .replace(/https?:\/\/[^\s]+userway\.org\/[^\s]+/gi, "")
+    .replace(/\b\d{5,10}\b/g, "")  // strip long numbers (IDs, not phone)
+    .replace(/\s+/g, " ")
+    .trim()
+}
+
+function extractWithRegex(combinedText: string, countyDisplay: string, urls: string[]): Record<string, unknown> {
+  const text = cleanHtmlText(combinedText)
+
+  // Phone: US formats — require non-digit boundary and common separators
+  const phoneMatch = text.match(/(?:\+?1[-.\s])?\(?\d{3}\)?[-.\s]\d{3}[-.\s]\d{4}(?!\d)/)
+  const phone = phoneMatch ? phoneMatch[0].replace(/\s+/g, " ") : null
+
+  // Email
+  const emailMatch = text.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/)
+  const email = emailMatch ? emailMatch[0] : null
+
+  // Address: look for numbered street lines (e.g., "123 Main St", "4567 Oak Ave, Suite 200")
+  const streetMatch = text.match(/\d+\s+[A-Za-z]+(?:\s+[A-Za-z]+)*\s+(?:St|Ave|Rd|Blvd|Dr|Ln|Way|Ct|Pl|Hwy|Route)\b[^,\n]{0,60}(?:,\s*[A-Za-z\s]+)?/i)
+  const address = streetMatch ? streetMatch[0].trim() : null
+
+  // Hours: look for day/time patterns, skip accessibility text
+  const hoursPatterns = [
+    /(?:mon|tues|wednes|thurs|fri|satur|sun)day[^\n]{0,5}\d{1,2}:\d{2}\s*[ap]\.?m\.?\s*-\s*\d{1,2}:\d{2}\s*[ap]\.?m\.?/i,
+    /(?:mon|tues|wednes|thurs|fri|satur|sun)day[^\n]{0,5}\d{1,2}\s*[ap]\.?m\.?\s*-\s*\d{1,2}\s*[ap]\.?m\.?/i,
+    /(?:hours?|office\s+hours)[^\n]{0,20}\d{1,2}:\d{2}\s*[ap]\.?m\.?[^\n]{0,30}/i,
+    /\d{1,2}:\d{2}\s*[ap]\.?m\.?\s*[–\-to]\s*\d{1,2}:\d{2}\s*[ap]\.?m\.?/i,
+  ]
+  let officeHours: string | null = null
+  for (const pat of hoursPatterns) {
+    const m = text.match(pat)
+    if (m && !/accessibility|menu|skip|about us|##/i.test(m[0])) {
+      officeHours = m[0].trim()
+      break
+    }
+  }
+
+  // Office name: from the first H1 or near permit keywords
+  const titleMatch = text.match(/#\s*([^\n|]{3,80})/)
+  let officeName = titleMatch ? titleMatch[1].replace(/\|.*$/, "").trim() : null
+  if (!officeName && countyDisplay) {
+    officeName = `${countyDisplay} Permits Office`
+  }
+
+  // Portal URL: prefer first .gov URL containing "permit" or "building"
+  let portalUrl = null
+  for (const url of urls) {
+    if (/permit|building|inspection|plan|zoning/i.test(url)) {
+      portalUrl = url
+      break
+    }
+  }
+  if (!portalUrl && urls.length > 0) portalUrl = urls[0]
+
+  // Required documents: list all unique URLs as sources
+  const requiredDocuments = urls.map((u, i) => ({
+    name: `Source ${i + 1}`,
+    url: u,
+  }))
+
+  // Submission instructions: build from found fields
+  let instructions = "AI extraction unavailable — structured data extracted automatically.\n\n"
+  if (phone) instructions += `Phone: ${phone}\n`
+  if (email) instructions += `Email: ${email}\n`
+  if (address) instructions += `Address: ${address}\n`
+  if (officeHours) instructions += `Hours: ${officeHours}\n`
+  instructions += `\nSources: ${urls.join(", ")}`
+
+  return {
+    office_name: officeName,
+    address,
+    phone,
+    email,
+    office_hours: officeHours,
+    permit_types: [],
+    submission_instructions: instructions,
+    portal_url: portalUrl,
+    required_documents: requiredDocuments,
+    processing_time: null,
+    fees_raw: text.slice(0, 3000),
+  }
+}
+
 // ── Upsert into permit_offices table ──
 
 async function upsertPermitOffice(
@@ -392,20 +485,8 @@ export async function handler(req: FnRequest) {
     try {
       extracted = await extractWithClaude(combinedText, countyDisplay, anthropicKey)
     } catch (aiErr) {
-      console.warn("Claude extraction failed, using raw fallback:", aiErr)
-      extracted = {
-        office_name: null,
-        address: null,
-        phone: null,
-        email: null,
-        office_hours: null,
-        permit_types: [],
-        submission_instructions: `AI extraction unavailable. Raw search results below. Review manually.\n\nSources: ${urls.join(", ")}`,
-        portal_url: urls[0] || null,
-        required_documents: urls.map((u, i) => ({ name: `Source ${i + 1}`, url: u })),
-        processing_time: null,
-        fees_raw: combinedText.slice(0, 8000),
-      }
+      console.warn("Claude extraction failed, using regex fallback:", aiErr)
+      extracted = extractWithRegex(combinedText, countyDisplay, urls)
     }
 
     // Step 6: Upsert into database
