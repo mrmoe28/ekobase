@@ -497,7 +497,7 @@ await app.register(async (rest) => {
             const payload = JSON.parse(
               Buffer.from(auth.slice(7).split(".")[1], "base64url").toString()
             );
-            const projectId: string | undefined = payload.project_id ?? payload.sub;
+            const projectId: string | undefined = payload.project_id;
             if (projectId) {
               const schema = "proj_" + projectId.replace(/-/g, "").slice(0, 16);
               return { ...headers, "accept-profile": schema, "content-profile": schema };
