@@ -438,3 +438,27 @@ export const createInviteToken = (userId: string) => request<InviteToken>(`/user
 export const listResetTokens = (userId: string) => request<InviteToken[]>(`/users/${userId}/reset-tokens`)
 export const deleteResetToken = (userId: string, token: string) =>
   request<object>(`/users/${userId}/reset-tokens/${encodeURIComponent(token)}`, { method: 'DELETE' })
+
+// Webhooks
+export type Webhook = {
+  id: string; project_id: string; name: string; table_name: string;
+  events: string[]; url: string; headers: Record<string, string>;
+  enabled: boolean; created_at: string;
+}
+export const listWebhooks = (projectId: string) => request<Webhook[]>(`/projects/${projectId}/webhooks`)
+export const createWebhook = (projectId: string, body: { name: string; table_name: string; events: string[]; url: string; headers?: Record<string, string> }) =>
+  request<Webhook>(`/projects/${projectId}/webhooks`, { method: 'POST', body: JSON.stringify(body) })
+export const updateWebhook = (projectId: string, id: string, body: Partial<Pick<Webhook, 'enabled'|'name'|'url'|'events'|'headers'>>) =>
+  request<Webhook>(`/projects/${projectId}/webhooks/${id}`, { method: 'PATCH', body: JSON.stringify(body) })
+export const deleteWebhook = (projectId: string, id: string) =>
+  request<object>(`/projects/${projectId}/webhooks/${id}`, { method: 'DELETE' })
+export const testWebhook = (projectId: string, id: string) =>
+  request<{ status: number; ok: boolean }>(`/projects/${projectId}/webhooks/${id}/test`, { method: 'POST' })
+
+// GitHub integration
+export type GithubLink = { project_id: string; repo_url: string; branch: string; connected_at: string }
+export const getGithubLink = (projectId: string) => request<GithubLink>(`/projects/${projectId}/github`)
+export const linkGithub = (projectId: string, body: { repo_url: string; branch?: string }) =>
+  request<GithubLink>(`/projects/${projectId}/github`, { method: 'PUT', body: JSON.stringify(body) })
+export const unlinkGithub = (projectId: string) =>
+  request<object>(`/projects/${projectId}/github`, { method: 'DELETE' })

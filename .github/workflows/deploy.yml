@@ -1,0 +1,69 @@
+name: Build & Deploy
+
+on:
+  push:
+    branches: [main]
+
+env:
+  REGISTRY: ghcr.io
+  ADMIN_UI_IMAGE: ghcr.io/mrmoe28/ekobase-admin-ui
+  ADMIN_SERVICE_IMAGE: ghcr.io/mrmoe28/ekobase-admin-service
+
+jobs:
+  build:
+    name: Build & push images
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build & push admin-ui
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: admin-ui
+          push: true
+          tags: |
+            ${{ env.ADMIN_UI_IMAGE }}:latest
+            ${{ env.ADMIN_UI_IMAGE }}:${{ github.sha }}
+          cache-from: type=gha,scope=admin-ui
+          cache-to: type=gha,mode=max,scope=admin-ui
+
+      - name: Build & push admin-service
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: admin-service
+          push: true
+          tags: |
+            ${{ env.ADMIN_SERVICE_IMAGE }}:latest
+            ${{ env.ADMIN_SERVICE_IMAGE }}:${{ github.sha }}
+          cache-from: type=gha,scope=admin-service
+          cache-to: type=gha,mode=max,scope=admin-service
+
+  deploy:
+    name: Deploy to production
+    needs: build
+    runs-on: self-hosted
+
+    steps:
+      - name: Pull new images & restart
+        run: |
+          cd /data/coolify/applications/yq9ux0e6qtm4st3lvmh0afpe
+          docker compose -f docker-compose.yaml -f docker-compose.override.yml \
+            pull admin-ui admin-service
+          docker compose -f docker-compose.yaml -f docker-compose.override.yml \
+            up -d --no-deps --no-build admin-ui admin-service

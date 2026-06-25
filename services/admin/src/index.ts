@@ -1632,6 +1632,31 @@ async function initSchema() {
     )
   `);
 
+  // project webhooks
+  await pgClient.query(`
+    create table if not exists admin.project_webhooks (
+      id uuid primary key default gen_random_uuid(),
+      project_id uuid not null references admin.projects(id) on delete cascade,
+      name text not null,
+      table_name text not null,
+      events text[] not null default '{}',
+      url text not null,
+      headers jsonb not null default '{}',
+      enabled boolean not null default true,
+      created_at timestamptz not null default now()
+    )
+  `);
+
+  // github repo links
+  await pgClient.query(`
+    create table if not exists admin.project_github (
+      project_id uuid primary key references admin.projects(id) on delete cascade,
+      repo_url text not null,
+      branch text not null default 'main',
+      connected_at timestamptz not null default now()
+    )
+  `);
+
 }
 
 // ─── Docker / Container health ────────────────────────────────────────────────
@@ -2165,6 +2190,185 @@ app.delete<{ Params: { userId: string; token: string } }>(
   }
 );
 
+
+// ─── Webhooks ─────────────────────────────────────────────────────────────────
+
+interface Webhook {
+  id: string;
+  project_id: string;
+  name: string;
+  table_name: string;
+  events: string[];
+  url: string;
+  headers: Record<string, string>;
+  enabled: boolean;
+  created_at: string;
+}
+
+app.get<{ Params: { projectId: string } }>(
+  "/projects/:projectId/webhooks",
+  async (request, reply) => {
+    const { projectId } = request.params;
+    const result = await pgClient.query<Webhook>(
+      `SELECT * FROM admin.project_webhooks WHERE project_id = $1 ORDER BY created_at ASC`,
+      [projectId]
+    );
+    return reply.send(result.rows);
+  }
+);
+
+app.post<{
+  Params: { projectId: string };
+  Body: { name: string; table_name: string; events: string[]; url: string; headers?: Record<string, string> };
+}>(
+  "/projects/:projectId/webhooks",
+  async (request, reply) => {
+    const { projectId } = request.params;
+    const { name, table_name, events, url, headers = {} } = request.body ?? {};
+    if (!name?.trim()) return reply.code(400).send({ error: "name is required" });
+    if (!table_name?.trim()) return reply.code(400).send({ error: "table_name is required" });
+    if (!url?.trim()) return reply.code(400).send({ error: "url is required" });
+    if (!Array.isArray(events) || events.length === 0) return reply.code(400).send({ error: "at least one event is required" });
+    if (!(await projectExists(projectId))) return reply.code(404).send({ error: "Project not found" });
+    try {
+      const result = await pgClient.query<Webhook>(
+        `INSERT INTO admin.project_webhooks (project_id, name, table_name, events, url, headers)
+         VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+        [projectId, name.trim(), table_name.trim(), events, JSON.stringify(headers)]
+      );
+      return reply.code(201).send(result.rows[0]);
+    } catch (err: unknown) {
+      return reply.code(500).send({ error: (err as Error).message });
+    }
+  }
+);
+
+app.patch<{
+  Params: { projectId: string; id: string };
+  Body: { enabled?: boolean; name?: string; url?: string; events?: string[]; headers?: Record<string, string> };
+}>(
+  "/projects/:projectId/webhooks/:id",
+  async (request, reply) => {
+    const { projectId, id } = request.params;
+    const body = request.body ?? {};
+    const sets: string[] = [];
+    const vals: unknown[] = [];
+    let idx = 1;
+    if (body.enabled !== undefined) { sets.push(`enabled = $${idx++}`); vals.push(body.enabled); }
+    if (body.name !== undefined) { sets.push(`name = $${idx++}`); vals.push(body.name.trim()); }
+    if (body.url !== undefined) { sets.push(`url = $${idx++}`); vals.push(body.url.trim()); }
+    if (body.events !== undefined) { sets.push(`events = $${idx++}`); vals.push(body.events); }
+    if (body.headers !== undefined) { sets.push(`headers = $${idx++}`); vals.push(JSON.stringify(body.headers)); }
+    if (sets.length === 0) return reply.code(400).send({ error: "Nothing to update" });
+    vals.push(id, projectId);
+    const result = await pgClient.query<Webhook>(
+      `UPDATE admin.project_webhooks SET ${sets.join(", ")} WHERE id = $${idx++} AND project_id = $${idx} RETURNING *`,
+      vals
+    );
+    if (result.rows.length === 0) return reply.code(404).send({ error: "Webhook not found" });
+    return reply.send(result.rows[0]);
+  }
+);
+
+app.delete<{ Params: { projectId: string; id: string } }>(
+  "/projects/:projectId/webhooks/:id",
+  async (request, reply) => {
+    const { projectId, id } = request.params;
+    const result = await pgClient.query(
+      `DELETE FROM admin.project_webhooks WHERE id = $1 AND project_id = $2 RETURNING id`,
+      [id, projectId]
+    );
+    if (result.rows.length === 0) return reply.code(404).send({ error: "Webhook not found" });
+    return reply.code(204).send();
+  }
+);
+
+app.post<{ Params: { projectId: string; id: string } }>(
+  "/projects/:projectId/webhooks/:id/test",
+  async (request, reply) => {
+    const { projectId, id } = request.params;
+    const result = await pgClient.query<Webhook>(
+      `SELECT * FROM admin.project_webhooks WHERE id = $1 AND project_id = $2`,
+      [id, projectId]
+    );
+    if (result.rows.length === 0) return reply.code(404).send({ error: "Webhook not found" });
+    const wh = result.rows[0];
+    const payload = {
+      type: "TEST",
+      table: wh.table_name,
+      record: null,
+      old_record: null,
+      schema: "public",
+    };
+    try {
+      const res = await fetch(wh.url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...wh.headers },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(10_000),
+      });
+      return reply.send({ status: res.status, ok: res.ok });
+    } catch (err: unknown) {
+      return reply.code(502).send({ error: (err as Error).message });
+    }
+  }
+);
+
+// ─── GitHub Integration ────────────────────────────────────────────────────────
+
+interface GithubLink {
+  project_id: string;
+  repo_url: string;
+  branch: string;
+  connected_at: string;
+}
+
+app.get<{ Params: { projectId: string } }>(
+  "/projects/:projectId/github",
+  async (request, reply) => {
+    const { projectId } = request.params;
+    const result = await pgClient.query<GithubLink>(
+      `SELECT * FROM admin.project_github WHERE project_id = $1`,
+      [projectId]
+    );
+    if (result.rows.length === 0) return reply.code(404).send({ error: "No GitHub connection" });
+    return reply.send(result.rows[0]);
+  }
+);
+
+app.put<{
+  Params: { projectId: string };
+  Body: { repo_url: string; branch?: string };
+}>(
+  "/projects/:projectId/github",
+  async (request, reply) => {
+    const { projectId } = request.params;
+    const { repo_url, branch = "main" } = request.body ?? {};
+    if (!repo_url?.trim()) return reply.code(400).send({ error: "repo_url is required" });
+    if (!(await projectExists(projectId))) return reply.code(404).send({ error: "Project not found" });
+    const result = await pgClient.query<GithubLink>(
+      `INSERT INTO admin.project_github (project_id, repo_url, branch)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (project_id) DO UPDATE SET repo_url = $2, branch = $3, connected_at = now()
+       RETURNING *`,
+      [projectId, repo_url.trim(), branch.trim()]
+    );
+    return reply.send(result.rows[0]);
+  }
+);
+
+app.delete<{ Params: { projectId: string } }>(
+  "/projects/:projectId/github",
+  async (request, reply) => {
+    const { projectId } = request.params;
+    const result = await pgClient.query(
+      `DELETE FROM admin.project_github WHERE project_id = $1 RETURNING project_id`,
+      [projectId]
+    );
+    if (result.rows.length === 0) return reply.code(404).send({ error: "No GitHub connection" });
+    return reply.code(204).send();
+  }
+);
 
 async function main() {
   console.log(`Initializing database schema...`);

@@ -1,6 +1,6 @@
 # ─── base: install all workspace deps ────────────────────────────────────────
 FROM node:22-alpine AS base
-RUN npm install -g pnpm@9
+RUN npm install -g pnpm@10
 WORKDIR /app
 # Copy manifest files first so pnpm install is cached independently of source
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
@@ -39,6 +39,8 @@ CMD ["node", "--experimental-strip-types", "services/storage/src/index.ts"]
 # ─── admin-ui: build then run ─────────────────────────────────────────────────
 FROM base AS admin-ui
 RUN pnpm --filter @local/admin-ui build
+# Next.js standalone doesn't auto-copy static/public — required for /_next/static/* serving
+RUN cp -r apps/admin-ui/.next/static apps/admin-ui/.next/standalone/apps/admin-ui/.next/static
 WORKDIR /app/apps/admin-ui
 EXPOSE 3000
 ENV PORT=3000
