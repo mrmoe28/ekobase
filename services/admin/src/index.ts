@@ -1,11 +1,11 @@
-import { randomUUID, createHash, randomBytes } from "node:crypto";
+import { randomUUID, createHash } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import Fastify from "fastify";
 import pg from "pg";
 import { jwtVerify } from "jose";
 import { DEFAULT_JWT_SECRET } from "@local/jwt";
-import Dockerode from "dockerode";
+import Dockerode from 'dockerode';
 
 const functionsDir = process.env.FUNCTIONS_DIR ?? "/data/functions";
 
@@ -16,7 +16,7 @@ const postgrestDbRole = process.env.POSTGREST_DB_ROLE ?? "authenticator";
 const storageUrl = process.env.STORAGE_URL ?? "http://localhost:54324";
 
 const pgClient = new pg.Pool({ connectionString: databaseUrl });
-const docker = new Dockerode({ socketPath: "/var/run/docker.sock" });
+const docker = new Dockerode({ socketPath: '/var/run/docker.sock' });
 
 type AuthClaims = {
   sub: string;
@@ -357,6 +357,10 @@ app.post<{ Body: { name: string; description?: string; owner_id?: string; region
       );
       const project = result.rows[0];
       await provisionProjectSchema(project.id);
+      // fire-and-forget Docker schema sync — does not block project creation
+      syncPostgrestDockerSchemas().catch((err) =>
+        app.log.warn({ err }, 'sync-schemas fire-and-forget failed')
+      );
       return reply.code(201).send({ ...project, schema_name: `proj_${project.id.replace(/-/g, "").slice(0, 16)}` });
     } catch {
       return reply.code(500).send({ error: "Failed to create project" });
@@ -1614,6 +1618,7 @@ async function initSchema() {
     )
   `);
 
+  // schema migrations
   await pgClient.query(`
     create table if not exists admin.migrations (
       id uuid primary key default gen_random_uuid(),
@@ -1626,158 +1631,324 @@ async function initSchema() {
       created_at timestamptz default now()
     )
   `);
+
 }
 
-// ─── Health: containers ───────────────────────────────────────────────────────
-app.get("/health/containers", async (_request, reply) => {
-  try {
-    const containers = await docker.listContainers({ all: true });
-    const infra = containers.filter(c => c.Names.some(n => n.replace(/^\//, "").startsWith("infra-")));
-    const results = await Promise.all(infra.map(async (c) => {
-      const name = c.Names[0].replace(/^\//, "");
-      let cpu_percent = 0, memory_mb = 0, memory_limit_mb = 0, uptime_seconds = 0;
-      if (c.State === "running") {
-        try {
-          const container = docker.getContainer(c.Id);
-          const [stats, info] = await Promise.all([
-            new Promise<any>((res, rej) => container.stats({ stream: false }, (err: any, d: any) => err ? rej(err) : res(d))),
-            container.inspect(),
-          ]);
-          const cpuDelta = stats.cpu_stats.cpu_usage.total_usage - stats.precpu_stats.cpu_usage.total_usage;
-          const systemDelta = stats.cpu_stats.system_cpu_usage - stats.precpu_stats.system_cpu_usage;
-          const numCPUs = stats.cpu_stats.online_cpus || 1;
-          cpu_percent = systemDelta > 0 ? (cpuDelta / systemDelta) * numCPUs * 100 : 0;
-          memory_mb = stats.memory_stats.usage / 1024 / 1024;
-          memory_limit_mb = stats.memory_stats.limit / 1024 / 1024;
-          const started = new Date(info.State.StartedAt).getTime();
-          uptime_seconds = Math.floor((Date.now() - started) / 1000);
-        } catch { /* stats unavailable */ }
-      }
-      return { name, id: c.Id.slice(0, 12), status: c.Status, state: c.State, uptime_seconds, cpu_percent: Math.round(cpu_percent * 10) / 10, memory_mb: Math.round(memory_mb), memory_limit_mb: Math.round(memory_limit_mb) };
-    }));
-    return reply.send(results);
-  } catch (err) {
-    return reply.code(500).send({ error: String(err) });
-  }
-});
+// ─── Docker / Container health ────────────────────────────────────────────────
 
-// ─── Health: database stats ───────────────────────────────────────────────────
-app.get("/health/database", async (_request, reply) => {
-  try {
-    const [sizeRes, schemasRes, connRes] = await Promise.all([
-      pgClient.query<{ total_size: string; total_bytes: string }>("select pg_size_pretty(pg_database_size(current_database())) as total_size, pg_database_size(current_database())::text as total_bytes"),
-      pgClient.query<{ schema: string; size: string; size_bytes: string }>("select n.nspname as schema, pg_size_pretty(sum(pg_total_relation_size(c.oid))::bigint) as size, sum(pg_total_relation_size(c.oid))::text as size_bytes from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname like 'proj_%' group by n.nspname order by sum(pg_total_relation_size(c.oid)) desc"),
-      pgClient.query<{ active_connections: string; total_connections: string }>("select (select count(*)::text from pg_stat_activity where state = 'active') as active_connections, count(*)::text as total_connections from pg_stat_activity"),
-    ]);
-    return reply.send({ total_size: sizeRes.rows[0].total_size, total_bytes: sizeRes.rows[0].total_bytes, schemas: schemasRes.rows, active_connections: connRes.rows[0].active_connections, total_connections: connRes.rows[0].total_connections });
-  } catch (err) {
-    return reply.code(500).send({ error: String(err) });
-  }
-});
+async function syncPostgrestDockerSchemas(): Promise<{
+  added: string[];
+  already_present: string[];
+  total: number;
+}> {
+  const schemasResult = await pgClient.query<{ schema_name: string }>(
+    `SELECT schema_name FROM information_schema.schemata WHERE schema_name LIKE 'proj_%' ORDER BY schema_name`
+  );
+  const dbSchemas = schemasResult.rows.map(r => r.schema_name);
 
-// ─── Health: sync PostgREST schemas ──────────────────────────────────────────
-app.post("/health/sync-schemas", async (_request, reply) => {
-  try {
-    await refreshPostgrestSchemas();
-    const res = await pgClient.query<{ schema_name: string }>("select schema_name from admin.projects where schema_name is not null");
-    return reply.send({ synced: res.rows.map(r => r.schema_name), total: res.rows.length });
-  } catch (err) {
-    return reply.code(500).send({ error: String(err) });
+  const containers = await docker.listContainers({ all: true });
+  const pgrestContainer = containers.find(c =>
+    c.Names.some(n => n === '/infra-postgrest-1' || n === 'infra-postgrest-1')
+  );
+  if (!pgrestContainer) {
+    throw new Error('Container infra-postgrest-1 not found');
   }
-});
 
-// ─── Logs: SSE stream ─────────────────────────────────────────────────────────
-app.get<{ Querystring: { container?: string; tail?: string } }>(
-  "/logs/stream",
-  async (request, reply) => {
-    const containerName = request.query.container ?? "infra-gateway-1";
-    const tail = request.query.tail ?? "100";
-    reply.raw.writeHead(200, {
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
-      "Connection": "keep-alive",
-      "X-Accel-Buffering": "no",
-    });
-    try {
-      const containers = await docker.listContainers({ all: false });
-      const match = containers.find(c => c.Names.some(n => n.replace(/^\//, "") === containerName));
-      if (!match) { reply.raw.end(`data: Container '${containerName}' not found\n\n`); return; }
-      const container = docker.getContainer(match.Id);
-      const stream = await new Promise<NodeJS.ReadableStream>((res, rej) =>
-        container.logs({ follow: true, stdout: true, stderr: true, tail: Number(tail) }, (err: any, s: any) => err ? rej(err) : res(s))
-      );
-      request.raw.on("close", () => (stream as any).destroy?.());
-      stream.on("data", (chunk: Buffer) => {
-        const text = chunk.slice(8).toString("utf8");
-        for (const line of text.split("\n")) {
-          if (line) reply.raw.write(`data: ${line}\n\n`);
-        }
-      });
-      stream.on("end", () => reply.raw.end());
-      stream.on("error", () => reply.raw.end());
-    } catch (err) {
-      reply.raw.write(`data: Error: ${String(err)}\n\n`);
-      reply.raw.end();
+  const container = docker.getContainer(pgrestContainer.Id);
+  const info = await container.inspect();
+
+  const envVars: string[] = (info as { Config?: { Env?: string[] } }).Config?.Env ?? [];
+  const schemasEnvVar = envVars.find(e => e.startsWith('PGRST_DB_SCHEMAS='));
+  const currentSchemas = schemasEnvVar
+    ? schemasEnvVar.replace('PGRST_DB_SCHEMAS=', '').split(',').map(s => s.trim()).filter(Boolean)
+    : [];
+
+  const alreadyPresent: string[] = [];
+  const added: string[] = [];
+  for (const schema of dbSchemas) {
+    if (currentSchemas.includes(schema)) {
+      alreadyPresent.push(schema);
+    } else {
+      added.push(schema);
     }
   }
-);
 
-// ─── Table editor: insert row ─────────────────────────────────────────────────
-app.post<{ Params: { schema: string; table: string }; Body: { data: Record<string, unknown> } }>(
+  if (added.length > 0) {
+    await container.restart({ t: 5 });
+  }
+
+  return { added, already_present: alreadyPresent, total: dbSchemas.length };
+}
+
+app.get("/health/containers", async (request, reply) => {
+  try {
+    const containers = await docker.listContainers({ all: true });
+    const infraContainers = containers.filter(c =>
+      c.Names.some(n => n.replace(/^\//, '').startsWith('infra-'))
+    );
+
+    const results = await Promise.all(
+      infraContainers.map(async (c) => {
+        const container = docker.getContainer(c.Id);
+        const name = c.Names[0]?.replace(/^\//, '') ?? c.Id;
+
+        let cpu_percent = 0;
+        let memory_mb = 0;
+        let memory_limit_mb = 0;
+
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const stats = await new Promise<Record<string, any> | null>((resolve, reject) => {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            container.stats({ stream: false }, (_err: Error | null, stream: any) => {
+              if (_err) return reject(_err);
+              if (!stream) return resolve(null);
+              const chunks: Buffer[] = [];
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              stream.on('data', (chunk: any) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
+              stream.on('end', () => {
+                try { resolve(JSON.parse(Buffer.concat(chunks).toString())); }
+                catch { resolve(null); }
+              });
+              stream.on('error', () => resolve(null));
+            });
+          });
+
+          if (stats) {
+            const cpuDelta =
+              (stats['cpu_stats']?.cpu_usage?.total_usage ?? 0) -
+              (stats['precpu_stats']?.cpu_usage?.total_usage ?? 0);
+            const systemDelta =
+              (stats['cpu_stats']?.system_cpu_usage ?? 0) -
+              (stats['precpu_stats']?.system_cpu_usage ?? 0);
+            const numCPUs =
+              stats['cpu_stats']?.online_cpus ??
+              stats['cpu_stats']?.cpu_usage?.percpu_usage?.length ??
+              1;
+            if (systemDelta > 0 && cpuDelta > 0) {
+              cpu_percent = (cpuDelta / systemDelta) * numCPUs * 100;
+            }
+            const memUsage = stats['memory_stats']?.usage ?? 0;
+            const memLimit = stats['memory_stats']?.limit ?? 0;
+            memory_mb = Math.round((memUsage / 1024 / 1024) * 100) / 100;
+            memory_limit_mb = Math.round((memLimit / 1024 / 1024) * 100) / 100;
+          }
+        } catch {
+          // stats unavailable for stopped containers
+        }
+
+        let uptime_seconds = 0;
+        try {
+          const info = await container.inspect();
+          const typedInfo = info as { State?: { StartedAt?: string; Running?: boolean } };
+          const startedAt = typedInfo.State?.StartedAt;
+          if (startedAt && typedInfo.State?.Running) {
+            uptime_seconds = Math.floor((Date.now() - new Date(startedAt).getTime()) / 1000);
+          }
+        } catch {
+          // ignore
+        }
+
+        return {
+          name,
+          id: c.Id.slice(0, 12),
+          status: c.Status,
+          state: c.State,
+          uptime_seconds,
+          cpu_percent: Math.round(cpu_percent * 100) / 100,
+          memory_mb,
+          memory_limit_mb,
+        };
+      })
+    );
+
+    return reply.send(results);
+  } catch (err: unknown) {
+    request.log.error(err);
+    return reply.code(500).send({ error: (err as Error).message });
+  }
+});
+
+app.get("/health/database", async (request, reply) => {
+  try {
+    const [sizeResult, schemasResult, activeResult, totalResult] = await Promise.all([
+      pgClient.query<{ total_size: string; total_bytes: string }>(
+        `SELECT pg_size_pretty(pg_database_size(current_database())) as total_size,
+                pg_database_size(current_database()) as total_bytes`
+      ),
+      pgClient.query<{ schema: string; size: string; size_bytes: string }>(
+        `SELECT nspname as schema,
+                pg_size_pretty(sum(pg_total_relation_size(c.oid))::bigint) as size,
+                sum(pg_total_relation_size(c.oid)) as size_bytes
+         FROM pg_class c
+         JOIN pg_namespace n ON n.oid = c.relnamespace
+         WHERE nspname LIKE 'proj_%'
+         GROUP BY nspname
+         ORDER BY sum(pg_total_relation_size(c.oid)) DESC`
+      ),
+      pgClient.query<{ active_connections: string }>(
+        `SELECT count(*) as active_connections FROM pg_stat_activity WHERE state = 'active'`
+      ),
+      pgClient.query<{ total_connections: string }>(
+        `SELECT count(*) as total_connections FROM pg_stat_activity`
+      ),
+    ]);
+
+    return reply.send({
+      total_size: sizeResult.rows[0]?.total_size,
+      total_bytes: parseInt(sizeResult.rows[0]?.total_bytes ?? '0'),
+      schemas: schemasResult.rows.map(r => ({
+        schema: r.schema,
+        size: r.size,
+        size_bytes: parseInt(r.size_bytes ?? '0'),
+      })),
+      active_connections: parseInt(activeResult.rows[0]?.active_connections ?? '0'),
+      total_connections: parseInt(totalResult.rows[0]?.total_connections ?? '0'),
+    });
+  } catch (err: unknown) {
+    request.log.error(err);
+    return reply.code(500).send({ error: (err as Error).message });
+  }
+});
+
+app.post("/health/sync-schemas", async (request, reply) => {
+  try {
+    const result = await syncPostgrestDockerSchemas();
+    return reply.send(result);
+  } catch (err: unknown) {
+    request.log.error(err);
+    return reply.code(500).send({ error: (err as Error).message });
+  }
+});
+
+// ─── Table Editor: Insert row ─────────────────────────────────────────────────
+
+app.post<{
+  Params: { schema: string; table: string };
+  Body: { data: Record<string, unknown> };
+}>(
   "/schema/:schema/:table/rows",
   async (request, reply) => {
     const { schema, table } = request.params;
-    if (!schema.startsWith("proj_") && schema !== "public") return reply.code(400).send({ error: "Invalid schema" });
-    const { data } = request.body;
-    if (!data || typeof data !== "object") return reply.code(400).send({ error: "data object required" });
-    const keys = Object.keys(data);
-    if (keys.length === 0) return reply.code(400).send({ error: "data must have at least one field" });
-    const cols = keys.map(k => pg.escapeIdentifier(k)).join(", ");
-    const placeholders = keys.map((_, i) => `$${i + 1}`).join(", ");
-    const values = keys.map(k => data[k]);
+    const { data } = request.body ?? {};
+
+    if (!isValidIdentifier(schema) || !isValidIdentifier(table)) {
+      return reply.code(400).send({ error: "Invalid schema or table name" });
+    }
+    if (!schema.startsWith('proj_') && schema !== 'public') {
+      return reply.code(403).send({ error: "Schema access denied" });
+    }
+    if (!data || Object.keys(data).length === 0) {
+      return reply.code(400).send({ error: "data is required" });
+    }
+
+    const entries = Object.entries(data);
+    const cols = entries.map(([col]) => `"${col}"`).join(', ');
+    const placeholders = entries.map((_, i) => `$${i + 1}`).join(', ');
+    const values = entries.map(([, v]) => v);
+
     try {
-      const res = await pgClient.query(`insert into ${pg.escapeIdentifier(schema)}.${pg.escapeIdentifier(table)} (${cols}) values (${placeholders}) returning *`, values);
-      return reply.code(201).send(res.rows[0] ?? {});
-    } catch (err: any) {
-      return reply.code(400).send({ error: err.message });
+      const result = await pgClient.query(
+        `INSERT INTO "${schema}"."${table}" (${cols}) VALUES (${placeholders}) RETURNING *`,
+        values
+      );
+      return reply.code(201).send(result.rows[0]);
+    } catch (err: unknown) {
+      return reply.code(400).send({ error: (err as Error).message });
     }
   }
 );
 
-// ─── RLS policies ─────────────────────────────────────────────────────────────
+// ─── RLS Policies ─────────────────────────────────────────────────────────────
+
+type RlsPolicy = {
+  policyname: string;
+  permissive: string;
+  roles: string[];
+  cmd: string;
+  qual: string | null;
+  with_check: string | null;
+};
+
+function isAllowedSchema(schema: string): boolean {
+  return schema.startsWith('proj_') || schema === 'public';
+}
+
 app.get<{ Params: { schema: string; table: string } }>(
   "/schema/:schema/:table/policies",
   async (request, reply) => {
     const { schema, table } = request.params;
-    if (!schema.startsWith("proj_") && schema !== "public") return reply.code(400).send({ error: "Invalid schema" });
+    if (!isValidIdentifier(schema) || !isValidIdentifier(table)) {
+      return reply.code(400).send({ error: "Invalid schema or table name" });
+    }
+    if (!isAllowedSchema(schema)) {
+      return reply.code(403).send({ error: "Schema access denied" });
+    }
     try {
-      const res = await pgClient.query(
-        "select policyname, permissive, roles, cmd, qual, with_check from pg_policies where schemaname = $1 and tablename = $2 order by policyname",
+      const result = await pgClient.query<RlsPolicy>(
+        `SELECT policyname, permissive, roles, cmd, qual, with_check
+         FROM pg_policies
+         WHERE schemaname = $1 AND tablename = $2`,
         [schema, table]
       );
-      return reply.send(res.rows);
-    } catch (err: any) {
-      return reply.code(500).send({ error: err.message });
+      return reply.send(result.rows);
+    } catch (err: unknown) {
+      return reply.code(500).send({ error: (err as Error).message });
     }
   }
 );
 
-app.post<{ Params: { schema: string; table: string }; Body: { name: string; command: string; permissive?: boolean; roles?: string[]; using?: string; with_check?: string } }>(
+app.post<{
+  Params: { schema: string; table: string };
+  Body: {
+    name: string;
+    command: 'SELECT' | 'INSERT' | 'UPDATE' | 'DELETE' | 'ALL';
+    permissive: boolean;
+    roles: string[];
+    using?: string;
+    with_check?: string;
+  };
+}>(
   "/schema/:schema/:table/policies",
   async (request, reply) => {
     const { schema, table } = request.params;
-    if (!schema.startsWith("proj_") && schema !== "public") return reply.code(400).send({ error: "Invalid schema" });
-    const { name, command, permissive = true, roles = ["authenticated"], using, with_check } = request.body;
-    const rolesStr = roles.map(r => pg.escapeIdentifier(r)).join(", ");
-    const permStr = permissive ? "PERMISSIVE" : "RESTRICTIVE";
-    let sql = `CREATE POLICY ${pg.escapeIdentifier(name)} ON ${pg.escapeIdentifier(schema)}.${pg.escapeIdentifier(table)} AS ${permStr} FOR ${command} TO ${rolesStr}`;
-    if (using) sql += ` USING (${using})`;
-    if (with_check) sql += ` WITH CHECK (${with_check})`;
+    const { name, command, permissive, roles, using: usingExpr, with_check: withCheckExpr } = request.body ?? {};
+
+    if (!isValidIdentifier(schema) || !isValidIdentifier(table)) {
+      return reply.code(400).send({ error: "Invalid schema or table name" });
+    }
+    if (!isAllowedSchema(schema)) {
+      return reply.code(403).send({ error: "Schema access denied" });
+    }
+    if (!name?.trim()) {
+      return reply.code(400).send({ error: "Policy name is required" });
+    }
+    const validCommands = ['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'ALL'];
+    if (!validCommands.includes(command)) {
+      return reply.code(400).send({ error: "Invalid command" });
+    }
+    if (!Array.isArray(roles) || roles.length === 0) {
+      return reply.code(400).send({ error: "roles array is required" });
+    }
+
+    const permissiveness = permissive ? 'PERMISSIVE' : 'RESTRICTIVE';
+    const rolesStr = roles.map(r => pg.escapeIdentifier(r)).join(', ');
+    const policyName = pg.escapeIdentifier(name.trim());
+    const schemaTable = `${pg.escapeIdentifier(schema)}.${pg.escapeIdentifier(table)}`;
+
+    let sql = `CREATE POLICY ${policyName} ON ${schemaTable} AS ${permissiveness} FOR ${command} TO ${rolesStr}`;
+    if (usingExpr) {
+      sql += ` USING (${usingExpr})`;
+    }
+    if (withCheckExpr) {
+      sql += ` WITH CHECK (${withCheckExpr})`;
+    }
+
     try {
       await pgClient.query(sql);
-      return reply.code(201).send({ name, command, permissive, roles, using, with_check });
-    } catch (err: any) {
-      return reply.code(400).send({ error: err.message });
+      return reply.code(201).send({ ok: true });
+    } catch (err: unknown) {
+      return reply.code(400).send({ error: (err as Error).message });
     }
   }
 );
@@ -1786,102 +1957,180 @@ app.delete<{ Params: { schema: string; table: string; policyName: string } }>(
   "/schema/:schema/:table/policies/:policyName",
   async (request, reply) => {
     const { schema, table, policyName } = request.params;
-    if (!schema.startsWith("proj_") && schema !== "public") return reply.code(400).send({ error: "Invalid schema" });
+    if (!isValidIdentifier(schema) || !isValidIdentifier(table)) {
+      return reply.code(400).send({ error: "Invalid schema or table name" });
+    }
+    if (!isAllowedSchema(schema)) {
+      return reply.code(403).send({ error: "Schema access denied" });
+    }
     try {
-      await pgClient.query(`DROP POLICY IF EXISTS ${pg.escapeIdentifier(policyName)} ON ${pg.escapeIdentifier(schema)}.${pg.escapeIdentifier(table)}`);
+      await pgClient.query(
+        `DROP POLICY IF EXISTS ${pg.escapeIdentifier(policyName)} ON ${pg.escapeIdentifier(schema)}.${pg.escapeIdentifier(table)}`
+      );
       return reply.code(204).send();
-    } catch (err: any) {
-      return reply.code(400).send({ error: err.message });
+    } catch (err: unknown) {
+      return reply.code(500).send({ error: (err as Error).message });
     }
   }
 );
 
-// ─── Migrations ───────────────────────────────────────────────────────────────
+// ─── Schema Migrations ────────────────────────────────────────────────────────
+
+type Migration = {
+  id: string;
+  project_id: string;
+  name: string;
+  sql: string;
+  status: 'pending' | 'applied' | 'failed' | 'rolled_back';
+  applied_at: Date | null;
+  error: string | null;
+  created_at: Date;
+};
+
 app.get<{ Params: { projectId: string } }>(
   "/projects/:projectId/migrations",
   async (request, reply) => {
     const { projectId } = request.params;
-    const res = await pgClient.query("select * from admin.migrations where project_id = $1 order by created_at asc", [projectId]);
-    return reply.send(res.rows);
-  }
-);
-
-app.post<{ Params: { projectId: string }; Body: { name: string; sql: string } }>(
-  "/projects/:projectId/migrations",
-  async (request, reply) => {
-    const { projectId } = request.params;
-    const { name, sql } = request.body;
-    if (!name || !sql) return reply.code(400).send({ error: "name and sql required" });
-    const res = await pgClient.query(
-      "insert into admin.migrations (project_id, name, sql) values ($1, $2, $3) returning *",
-      [projectId, name, sql]
-    );
-    return reply.code(201).send(res.rows[0]);
-  }
-);
-
-app.post<{ Params: { projectId: string; migrationId: string } }>(
-  "/projects/:projectId/migrations/:migrationId/apply",
-  async (request, reply) => {
-    const { migrationId } = request.params;
-    const migRes = await pgClient.query("select * from admin.migrations where id = $1", [migrationId]);
-    const migration = migRes.rows[0];
-    if (!migration) return reply.code(404).send({ error: "Migration not found" });
-    if (migration.status === "applied") return reply.code(400).send({ error: "Already applied" });
     try {
-      await pgClient.query(migration.sql);
-      const updated = await pgClient.query(
-        "update admin.migrations set status = 'applied', applied_at = now(), error = null where id = $1 returning *",
-        [migrationId]
+      const result = await pgClient.query<Migration>(
+        `SELECT id, project_id, name, sql, status, applied_at, error, created_at
+         FROM admin.migrations
+         WHERE project_id = $1
+         ORDER BY created_at ASC`,
+        [projectId]
       );
-      return reply.send(updated.rows[0]);
-    } catch (err: any) {
-      await pgClient.query("update admin.migrations set status = 'failed', error = $1 where id = $2", [err.message, migrationId]);
-      return reply.code(400).send({ error: err.message });
+      return reply.send(result.rows);
+    } catch (err: unknown) {
+      return reply.code(500).send({ error: (err as Error).message });
     }
   }
 );
 
-app.post<{ Params: { projectId: string; migrationId: string } }>(
-  "/projects/:projectId/migrations/:migrationId/rollback",
+app.post<{
+  Params: { projectId: string };
+  Body: { name: string; sql: string };
+}>(
+  "/projects/:projectId/migrations",
   async (request, reply) => {
-    const { migrationId } = request.params;
-    const res = await pgClient.query(
-      "update admin.migrations set status = 'rolled_back' where id = $1 returning *",
-      [migrationId]
-    );
-    if (!res.rows[0]) return reply.code(404).send({ error: "Migration not found" });
-    return reply.send(res.rows[0]);
+    const { projectId } = request.params;
+    const { name, sql: migrationSql } = request.body ?? {};
+    if (!name?.trim()) {
+      return reply.code(400).send({ error: "Migration name is required" });
+    }
+    if (!migrationSql?.trim()) {
+      return reply.code(400).send({ error: "Migration SQL is required" });
+    }
+    if (!(await projectExists(projectId))) {
+      return reply.code(404).send({ error: "Project not found" });
+    }
+    try {
+      const result = await pgClient.query<Migration>(
+        `INSERT INTO admin.migrations (project_id, name, sql)
+         VALUES ($1, $2, $3)
+         RETURNING *`,
+        [projectId, name.trim(), migrationSql.trim()]
+      );
+      return reply.code(201).send(result.rows[0]);
+    } catch (err: unknown) {
+      return reply.code(500).send({ error: (err as Error).message });
+    }
   }
 );
 
-app.delete<{ Params: { projectId: string; migrationId: string } }>(
-  "/projects/:projectId/migrations/:migrationId",
+app.post<{ Params: { projectId: string; id: string } }>(
+  "/projects/:projectId/migrations/:id/apply",
   async (request, reply) => {
-    const { migrationId } = request.params;
-    const check = await pgClient.query("select status from admin.migrations where id = $1", [migrationId]);
-    if (!check.rows[0]) return reply.code(404).send({ error: "Migration not found" });
-    if (check.rows[0].status !== "pending") return reply.code(400).send({ error: "Only pending migrations can be deleted" });
-    await pgClient.query("delete from admin.migrations where id = $1", [migrationId]);
+    const { projectId, id } = request.params;
+    const migResult = await pgClient.query<Migration>(
+      `SELECT * FROM admin.migrations WHERE id = $1 AND project_id = $2`,
+      [id, projectId]
+    );
+    if (migResult.rows.length === 0) {
+      return reply.code(404).send({ error: "Migration not found" });
+    }
+    const migration = migResult.rows[0];
+    try {
+      await pgClient.query(migration.sql);
+      const updated = await pgClient.query<Migration>(
+        `UPDATE admin.migrations
+         SET status = 'applied', applied_at = now(), error = null
+         WHERE id = $1
+         RETURNING *`,
+        [id]
+      );
+      return reply.send(updated.rows[0]);
+    } catch (err: unknown) {
+      const errMsg = (err as Error).message;
+      await pgClient.query(
+        `UPDATE admin.migrations SET status = 'failed', error = $1 WHERE id = $2`,
+        [errMsg, id]
+      );
+      return reply.code(400).send({ error: errMsg });
+    }
+  }
+);
+
+app.post<{ Params: { projectId: string; id: string } }>(
+  "/projects/:projectId/migrations/:id/rollback",
+  async (request, reply) => {
+    const { projectId, id } = request.params;
+    const result = await pgClient.query<Migration>(
+      `UPDATE admin.migrations
+       SET status = 'rolled_back'
+       WHERE id = $1 AND project_id = $2
+       RETURNING *`,
+      [id, projectId]
+    );
+    if (result.rows.length === 0) {
+      return reply.code(404).send({ error: "Migration not found" });
+    }
+    return reply.send(result.rows[0]);
+  }
+);
+
+app.delete<{ Params: { projectId: string; id: string } }>(
+  "/projects/:projectId/migrations/:id",
+  async (request, reply) => {
+    const { projectId, id } = request.params;
+    const result = await pgClient.query(
+      `DELETE FROM admin.migrations
+       WHERE id = $1 AND project_id = $2 AND status = 'pending'
+       RETURNING id`,
+      [id, projectId]
+    );
+    if (result.rows.length === 0) {
+      return reply.code(404).send({ error: "Migration not found or not in pending status" });
+    }
     return reply.code(204).send();
   }
 );
 
-// ─── User invite tokens ───────────────────────────────────────────────────────
+// ─── User Invite / Password Reset tokens ─────────────────────────────────────
+
 app.post<{ Params: { userId: string } }>(
   "/users/:userId/invite-token",
   async (request, reply) => {
     const { userId } = request.params;
-    const token = randomBytes(32).toString("base64url");
-    await pgClient.query(
-      "insert into auth.password_reset_tokens (token, user_id) values ($1, $2)",
-      [token, userId]
+    const userResult = await pgClient.query(
+      "SELECT id FROM auth.users WHERE id = $1",
+      [userId]
     );
-    const res = await pgClient.query<{ expires_at: Date }>(
-      "select expires_at from auth.password_reset_tokens where token = $1",
-      [token]
-    );
-    return reply.code(201).send({ token, expires_at: res.rows[0]?.expires_at });
+    if (userResult.rows.length === 0) {
+      return reply.code(404).send({ error: "User not found" });
+    }
+    const { randomBytes } = await import("node:crypto");
+    const token = randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+    try {
+      await pgClient.query(
+        `INSERT INTO auth.password_reset_tokens (token, user_id, expires_at)
+         VALUES ($1, $2, $3)`,
+        [token, userId, expiresAt]
+      );
+      return reply.code(201).send({ token, expires_at: expiresAt.toISOString() });
+    } catch (err: unknown) {
+      return reply.code(500).send({ error: (err as Error).message });
+    }
   }
 );
 
@@ -1889,11 +2138,13 @@ app.get<{ Params: { userId: string } }>(
   "/users/:userId/reset-tokens",
   async (request, reply) => {
     const { userId } = request.params;
-    const res = await pgClient.query(
-      "select token, expires_at from auth.password_reset_tokens where user_id = $1 and expires_at > now() order by expires_at asc",
+    const result = await pgClient.query<{ token: string; expires_at: Date }>(
+      `SELECT token, expires_at FROM auth.password_reset_tokens
+       WHERE user_id = $1 AND expires_at > now()
+       ORDER BY expires_at DESC`,
       [userId]
     );
-    return reply.send(res.rows);
+    return reply.send(result.rows);
   }
 );
 
@@ -1901,13 +2152,19 @@ app.delete<{ Params: { userId: string; token: string } }>(
   "/users/:userId/reset-tokens/:token",
   async (request, reply) => {
     const { userId, token } = request.params;
-    await pgClient.query(
-      "delete from auth.password_reset_tokens where token = $1 and user_id = $2",
+    const result = await pgClient.query(
+      `DELETE FROM auth.password_reset_tokens
+       WHERE token = $1 AND user_id = $2
+       RETURNING token`,
       [token, userId]
     );
+    if (result.rows.length === 0) {
+      return reply.code(404).send({ error: "Token not found" });
+    }
     return reply.code(204).send();
   }
 );
+
 
 async function main() {
   console.log(`Initializing database schema...`);
