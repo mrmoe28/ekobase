@@ -43,6 +43,7 @@ services:
       POSTGREST_DB_ROLE: authenticator
     volumes:
       - functions-data:/data/functions
+      - /var/run/docker.sock:/var/run/docker.sock:ro
     depends_on:
       postgres:
         condition: service_healthy

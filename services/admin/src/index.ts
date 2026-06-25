@@ -1,10 +1,11 @@
-import { randomUUID, createHash } from "node:crypto";
+import { randomUUID, createHash, randomBytes } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import Fastify from "fastify";
 import pg from "pg";
 import { jwtVerify } from "jose";
 import { DEFAULT_JWT_SECRET } from "@local/jwt";
+import Dockerode from "dockerode";
 
 const functionsDir = process.env.FUNCTIONS_DIR ?? "/data/functions";
 
@@ -15,6 +16,7 @@ const postgrestDbRole = process.env.POSTGREST_DB_ROLE ?? "authenticator";
 const storageUrl = process.env.STORAGE_URL ?? "http://localhost:54324";
 
 const pgClient = new pg.Pool({ connectionString: databaseUrl });
+const docker = new Dockerode({ socketPath: "/var/run/docker.sock" });
 
 type AuthClaims = {
   sub: string;
@@ -1611,7 +1613,301 @@ async function initSchema() {
       primary key (project_id, user_id)
     )
   `);
+
+  await pgClient.query(`
+    create table if not exists admin.migrations (
+      id uuid primary key default gen_random_uuid(),
+      project_id uuid references admin.projects(id) on delete cascade,
+      name text not null,
+      sql text not null,
+      status text not null default 'pending' check (status in ('pending','applied','failed','rolled_back')),
+      applied_at timestamptz,
+      error text,
+      created_at timestamptz default now()
+    )
+  `);
 }
+
+// ─── Health: containers ───────────────────────────────────────────────────────
+app.get("/health/containers", async (_request, reply) => {
+  try {
+    const containers = await docker.listContainers({ all: true });
+    const infra = containers.filter(c => c.Names.some(n => n.replace(/^\//, "").startsWith("infra-")));
+    const results = await Promise.all(infra.map(async (c) => {
+      const name = c.Names[0].replace(/^\//, "");
+      let cpu_percent = 0, memory_mb = 0, memory_limit_mb = 0, uptime_seconds = 0;
+      if (c.State === "running") {
+        try {
+          const container = docker.getContainer(c.Id);
+          const [stats, info] = await Promise.all([
+            new Promise<any>((res, rej) => container.stats({ stream: false }, (err: any, d: any) => err ? rej(err) : res(d))),
+            container.inspect(),
+          ]);
+          const cpuDelta = stats.cpu_stats.cpu_usage.total_usage - stats.precpu_stats.cpu_usage.total_usage;
+          const systemDelta = stats.cpu_stats.system_cpu_usage - stats.precpu_stats.system_cpu_usage;
+          const numCPUs = stats.cpu_stats.online_cpus || 1;
+          cpu_percent = systemDelta > 0 ? (cpuDelta / systemDelta) * numCPUs * 100 : 0;
+          memory_mb = stats.memory_stats.usage / 1024 / 1024;
+          memory_limit_mb = stats.memory_stats.limit / 1024 / 1024;
+          const started = new Date(info.State.StartedAt).getTime();
+          uptime_seconds = Math.floor((Date.now() - started) / 1000);
+        } catch { /* stats unavailable */ }
+      }
+      return { name, id: c.Id.slice(0, 12), status: c.Status, state: c.State, uptime_seconds, cpu_percent: Math.round(cpu_percent * 10) / 10, memory_mb: Math.round(memory_mb), memory_limit_mb: Math.round(memory_limit_mb) };
+    }));
+    return reply.send(results);
+  } catch (err) {
+    return reply.code(500).send({ error: String(err) });
+  }
+});
+
+// ─── Health: database stats ───────────────────────────────────────────────────
+app.get("/health/database", async (_request, reply) => {
+  try {
+    const [sizeRes, schemasRes, connRes] = await Promise.all([
+      pgClient.query<{ total_size: string; total_bytes: string }>("select pg_size_pretty(pg_database_size(current_database())) as total_size, pg_database_size(current_database())::text as total_bytes"),
+      pgClient.query<{ schema: string; size: string; size_bytes: string }>("select n.nspname as schema, pg_size_pretty(sum(pg_total_relation_size(c.oid))::bigint) as size, sum(pg_total_relation_size(c.oid))::text as size_bytes from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname like 'proj_%' group by n.nspname order by sum(pg_total_relation_size(c.oid)) desc"),
+      pgClient.query<{ active_connections: string; total_connections: string }>("select (select count(*)::text from pg_stat_activity where state = 'active') as active_connections, count(*)::text as total_connections from pg_stat_activity"),
+    ]);
+    return reply.send({ total_size: sizeRes.rows[0].total_size, total_bytes: sizeRes.rows[0].total_bytes, schemas: schemasRes.rows, active_connections: connRes.rows[0].active_connections, total_connections: connRes.rows[0].total_connections });
+  } catch (err) {
+    return reply.code(500).send({ error: String(err) });
+  }
+});
+
+// ─── Health: sync PostgREST schemas ──────────────────────────────────────────
+app.post("/health/sync-schemas", async (_request, reply) => {
+  try {
+    await refreshPostgrestSchemas();
+    const res = await pgClient.query<{ schema_name: string }>("select schema_name from admin.projects where schema_name is not null");
+    return reply.send({ synced: res.rows.map(r => r.schema_name), total: res.rows.length });
+  } catch (err) {
+    return reply.code(500).send({ error: String(err) });
+  }
+});
+
+// ─── Logs: SSE stream ─────────────────────────────────────────────────────────
+app.get<{ Querystring: { container?: string; tail?: string } }>(
+  "/logs/stream",
+  async (request, reply) => {
+    const containerName = request.query.container ?? "infra-gateway-1";
+    const tail = request.query.tail ?? "100";
+    reply.raw.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      "Connection": "keep-alive",
+      "X-Accel-Buffering": "no",
+    });
+    try {
+      const containers = await docker.listContainers({ all: false });
+      const match = containers.find(c => c.Names.some(n => n.replace(/^\//, "") === containerName));
+      if (!match) { reply.raw.end(`data: Container '${containerName}' not found\n\n`); return; }
+      const container = docker.getContainer(match.Id);
+      const stream = await new Promise<NodeJS.ReadableStream>((res, rej) =>
+        container.logs({ follow: true, stdout: true, stderr: true, tail: Number(tail) }, (err: any, s: any) => err ? rej(err) : res(s))
+      );
+      request.raw.on("close", () => (stream as any).destroy?.());
+      stream.on("data", (chunk: Buffer) => {
+        const text = chunk.slice(8).toString("utf8");
+        for (const line of text.split("\n")) {
+          if (line) reply.raw.write(`data: ${line}\n\n`);
+        }
+      });
+      stream.on("end", () => reply.raw.end());
+      stream.on("error", () => reply.raw.end());
+    } catch (err) {
+      reply.raw.write(`data: Error: ${String(err)}\n\n`);
+      reply.raw.end();
+    }
+  }
+);
+
+// ─── Table editor: insert row ─────────────────────────────────────────────────
+app.post<{ Params: { schema: string; table: string }; Body: { data: Record<string, unknown> } }>(
+  "/schema/:schema/:table/rows",
+  async (request, reply) => {
+    const { schema, table } = request.params;
+    if (!schema.startsWith("proj_") && schema !== "public") return reply.code(400).send({ error: "Invalid schema" });
+    const { data } = request.body;
+    if (!data || typeof data !== "object") return reply.code(400).send({ error: "data object required" });
+    const keys = Object.keys(data);
+    if (keys.length === 0) return reply.code(400).send({ error: "data must have at least one field" });
+    const cols = keys.map(k => pg.escapeIdentifier(k)).join(", ");
+    const placeholders = keys.map((_, i) => `$${i + 1}`).join(", ");
+    const values = keys.map(k => data[k]);
+    try {
+      const res = await pgClient.query(`insert into ${pg.escapeIdentifier(schema)}.${pg.escapeIdentifier(table)} (${cols}) values (${placeholders}) returning *`, values);
+      return reply.code(201).send(res.rows[0] ?? {});
+    } catch (err: any) {
+      return reply.code(400).send({ error: err.message });
+    }
+  }
+);
+
+// ─── RLS policies ─────────────────────────────────────────────────────────────
+app.get<{ Params: { schema: string; table: string } }>(
+  "/schema/:schema/:table/policies",
+  async (request, reply) => {
+    const { schema, table } = request.params;
+    if (!schema.startsWith("proj_") && schema !== "public") return reply.code(400).send({ error: "Invalid schema" });
+    try {
+      const res = await pgClient.query(
+        "select policyname, permissive, roles, cmd, qual, with_check from pg_policies where schemaname = $1 and tablename = $2 order by policyname",
+        [schema, table]
+      );
+      return reply.send(res.rows);
+    } catch (err: any) {
+      return reply.code(500).send({ error: err.message });
+    }
+  }
+);
+
+app.post<{ Params: { schema: string; table: string }; Body: { name: string; command: string; permissive?: boolean; roles?: string[]; using?: string; with_check?: string } }>(
+  "/schema/:schema/:table/policies",
+  async (request, reply) => {
+    const { schema, table } = request.params;
+    if (!schema.startsWith("proj_") && schema !== "public") return reply.code(400).send({ error: "Invalid schema" });
+    const { name, command, permissive = true, roles = ["authenticated"], using, with_check } = request.body;
+    const rolesStr = roles.map(r => pg.escapeIdentifier(r)).join(", ");
+    const permStr = permissive ? "PERMISSIVE" : "RESTRICTIVE";
+    let sql = `CREATE POLICY ${pg.escapeIdentifier(name)} ON ${pg.escapeIdentifier(schema)}.${pg.escapeIdentifier(table)} AS ${permStr} FOR ${command} TO ${rolesStr}`;
+    if (using) sql += ` USING (${using})`;
+    if (with_check) sql += ` WITH CHECK (${with_check})`;
+    try {
+      await pgClient.query(sql);
+      return reply.code(201).send({ name, command, permissive, roles, using, with_check });
+    } catch (err: any) {
+      return reply.code(400).send({ error: err.message });
+    }
+  }
+);
+
+app.delete<{ Params: { schema: string; table: string; policyName: string } }>(
+  "/schema/:schema/:table/policies/:policyName",
+  async (request, reply) => {
+    const { schema, table, policyName } = request.params;
+    if (!schema.startsWith("proj_") && schema !== "public") return reply.code(400).send({ error: "Invalid schema" });
+    try {
+      await pgClient.query(`DROP POLICY IF EXISTS ${pg.escapeIdentifier(policyName)} ON ${pg.escapeIdentifier(schema)}.${pg.escapeIdentifier(table)}`);
+      return reply.code(204).send();
+    } catch (err: any) {
+      return reply.code(400).send({ error: err.message });
+    }
+  }
+);
+
+// ─── Migrations ───────────────────────────────────────────────────────────────
+app.get<{ Params: { projectId: string } }>(
+  "/projects/:projectId/migrations",
+  async (request, reply) => {
+    const { projectId } = request.params;
+    const res = await pgClient.query("select * from admin.migrations where project_id = $1 order by created_at asc", [projectId]);
+    return reply.send(res.rows);
+  }
+);
+
+app.post<{ Params: { projectId: string }; Body: { name: string; sql: string } }>(
+  "/projects/:projectId/migrations",
+  async (request, reply) => {
+    const { projectId } = request.params;
+    const { name, sql } = request.body;
+    if (!name || !sql) return reply.code(400).send({ error: "name and sql required" });
+    const res = await pgClient.query(
+      "insert into admin.migrations (project_id, name, sql) values ($1, $2, $3) returning *",
+      [projectId, name, sql]
+    );
+    return reply.code(201).send(res.rows[0]);
+  }
+);
+
+app.post<{ Params: { projectId: string; migrationId: string } }>(
+  "/projects/:projectId/migrations/:migrationId/apply",
+  async (request, reply) => {
+    const { migrationId } = request.params;
+    const migRes = await pgClient.query("select * from admin.migrations where id = $1", [migrationId]);
+    const migration = migRes.rows[0];
+    if (!migration) return reply.code(404).send({ error: "Migration not found" });
+    if (migration.status === "applied") return reply.code(400).send({ error: "Already applied" });
+    try {
+      await pgClient.query(migration.sql);
+      const updated = await pgClient.query(
+        "update admin.migrations set status = 'applied', applied_at = now(), error = null where id = $1 returning *",
+        [migrationId]
+      );
+      return reply.send(updated.rows[0]);
+    } catch (err: any) {
+      await pgClient.query("update admin.migrations set status = 'failed', error = $1 where id = $2", [err.message, migrationId]);
+      return reply.code(400).send({ error: err.message });
+    }
+  }
+);
+
+app.post<{ Params: { projectId: string; migrationId: string } }>(
+  "/projects/:projectId/migrations/:migrationId/rollback",
+  async (request, reply) => {
+    const { migrationId } = request.params;
+    const res = await pgClient.query(
+      "update admin.migrations set status = 'rolled_back' where id = $1 returning *",
+      [migrationId]
+    );
+    if (!res.rows[0]) return reply.code(404).send({ error: "Migration not found" });
+    return reply.send(res.rows[0]);
+  }
+);
+
+app.delete<{ Params: { projectId: string; migrationId: string } }>(
+  "/projects/:projectId/migrations/:migrationId",
+  async (request, reply) => {
+    const { migrationId } = request.params;
+    const check = await pgClient.query("select status from admin.migrations where id = $1", [migrationId]);
+    if (!check.rows[0]) return reply.code(404).send({ error: "Migration not found" });
+    if (check.rows[0].status !== "pending") return reply.code(400).send({ error: "Only pending migrations can be deleted" });
+    await pgClient.query("delete from admin.migrations where id = $1", [migrationId]);
+    return reply.code(204).send();
+  }
+);
+
+// ─── User invite tokens ───────────────────────────────────────────────────────
+app.post<{ Params: { userId: string } }>(
+  "/users/:userId/invite-token",
+  async (request, reply) => {
+    const { userId } = request.params;
+    const token = randomBytes(32).toString("base64url");
+    await pgClient.query(
+      "insert into auth.password_reset_tokens (token, user_id) values ($1, $2)",
+      [token, userId]
+    );
+    const res = await pgClient.query<{ expires_at: Date }>(
+      "select expires_at from auth.password_reset_tokens where token = $1",
+      [token]
+    );
+    return reply.code(201).send({ token, expires_at: res.rows[0]?.expires_at });
+  }
+);
+
+app.get<{ Params: { userId: string } }>(
+  "/users/:userId/reset-tokens",
+  async (request, reply) => {
+    const { userId } = request.params;
+    const res = await pgClient.query(
+      "select token, expires_at from auth.password_reset_tokens where user_id = $1 and expires_at > now() order by expires_at asc",
+      [userId]
+    );
+    return reply.send(res.rows);
+  }
+);
+
+app.delete<{ Params: { userId: string; token: string } }>(
+  "/users/:userId/reset-tokens/:token",
+  async (request, reply) => {
+    const { userId, token } = request.params;
+    await pgClient.query(
+      "delete from auth.password_reset_tokens where token = $1 and user_id = $2",
+      [token, userId]
+    );
+    return reply.code(204).send();
+  }
+);
 
 async function main() {
   console.log(`Initializing database schema...`);
