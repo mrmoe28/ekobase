@@ -134,6 +134,7 @@ services:
       SUPABASE_INTERNAL_URL: ${SUPABASE_INTERNAL_URL:-http://gateway:54321}
       # ── leadboss-import ──
       LEADBOSS_SHARED_SECRET: ${LEADBOSS_SHARED_SECRET}
+      LEADBOSS_DEFAULT_OWNER_USER_ID: ${LEADBOSS_DEFAULT_OWNER_USER_ID}
       WHISPER_URL: ${WHISPER_URL:-http://192.168.1.194:8000}
     networks:
       - coolify

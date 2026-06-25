@@ -76,7 +76,7 @@ export async function handler(req: FnRequest) {
     const secret = process.env["LEADBOSS_SHARED_SECRET"]
     if (!secret) throw new Error("LEADBOSS_SHARED_SECRET not configured")
 
-    const signature = (req.headers["X-LeadBoss-Signature"] as string | undefined) || ""
+    const signature = (req.headers["x-leadboss-signature"] as string | undefined) || ""
     const rawBody = (typeof req.body === "string" ? req.body : JSON.stringify(req.body ?? {}))
     const expected = await hmacHex(secret, rawBody)
     if (signature !== expected) {
