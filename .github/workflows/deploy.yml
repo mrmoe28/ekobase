@@ -7,8 +7,8 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  ADMIN_UI_IMAGE: ghcr.io/mrmoe28/ekobase-admin-ui
-  ADMIN_SERVICE_IMAGE: ghcr.io/mrmoe28/ekobase-admin-service
+  ADMIN_UI_IMAGE: ghcr.io/mrmoe28/ekobase-ui
+  ADMIN_SERVICE_IMAGE: ghcr.io/mrmoe28/ekobase-svc
 
 jobs:
   build:
