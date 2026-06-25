@@ -8,7 +8,7 @@ import { useProject } from '@/contexts/project'
 import {
   updateProject, deleteProject,
   getProjectKeys, listProjectMembers, addProjectMember, removeProjectMember,
-  listUsers,
+  listUsers, syncSchemas,
   type Project, type User,
 } from '@/lib/api'
 import { Copy, Check, Eye, EyeOff } from 'lucide-react'
@@ -53,6 +53,7 @@ export default function ProjectSettingsPage() {
       <SettingsSection project={project} onUpdate={setProject} showToast={showToast} />
       <ApiKeysSection projectId={id} showToast={showToast} />
       <MembersSection projectId={id} showToast={showToast} />
+      <SyncSection showToast={showToast} />
       <DangerZone projectId={id} projectName={project.name} showToast={showToast} router={router} />
 
       {toast && (
@@ -329,6 +330,34 @@ function DangerZone({ projectId, projectName, showToast, router }: {
         {deleting ? 'Deleting…' : 'Delete project'}
       </button>
     </div>
+  )
+}
+
+function SyncSection({ showToast }: { showToast: (m: string, t: ToastType) => void }) {
+  const [syncing, setSyncing] = useState(false)
+
+  const handleSync = async () => {
+    setSyncing(true)
+    try {
+      const result = await syncSchemas()
+      showToast(`Synced ${result.total} schema${result.total !== 1 ? 's' : ''} with PostgREST`, 'success')
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'Sync failed', 'error')
+    } finally {
+      setSyncing(false)
+    }
+  }
+
+  return (
+    <Section title="PostgREST Schema Sync">
+      <p className="text-sm mb-4" style={{ color: 'var(--text-muted)' }}>
+        Reload PostgREST schema cache. Run this after adding tables or changing RLS policies so API changes take effect immediately.
+      </p>
+      <button onClick={handleSync} disabled={syncing} className="flex items-center gap-2 btn-primary">
+        {syncing ? <Loader2 size={14} className="animate-spin" /> : null}
+        {syncing ? 'Syncing…' : 'Sync schemas now'}
+      </button>
+    </Section>
   )
 }
 

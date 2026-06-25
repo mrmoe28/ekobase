@@ -9,7 +9,9 @@ import {
   removeProjectMember,
   listUsers,
   impersonateUser,
+  createInviteToken,
   type User,
+  type InviteToken,
 } from '@/lib/api'
 import Modal from '@/components/Modal'
 import Toast, { type ToastType } from '@/components/Toast'
@@ -28,6 +30,10 @@ export default function ProjectAuthPage() {
   const [minting, setMinting] = useState<string | null>(null)
   const [token, setToken] = useState<{ user: User; access_token: string; expires_in: number } | null>(null)
   const [copied, setCopied] = useState(false)
+  const [inviteUser, setInviteUser] = useState<User | null>(null)
+  const [inviteToken, setInviteToken] = useState<InviteToken | null>(null)
+  const [inviteCopied, setInviteCopied] = useState(false)
+  const [generatingInvite, setGeneratingInvite] = useState<string | null>(null)
   const [toast, setToast] = useState<ToastState | null>(null)
 
   const showToast = (message: string, type: ToastType) =>
@@ -76,6 +82,20 @@ export default function ProjectAuthPage() {
     await navigator.clipboard.writeText(token.access_token)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
+  }
+
+  const handleGenerateInvite = async (member: User) => {
+    setGeneratingInvite(member.id)
+    try {
+      const tok = await createInviteToken(member.id)
+      setInviteUser(member)
+      setInviteToken(tok)
+      setInviteCopied(false)
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'Failed to generate invite', 'error')
+    } finally {
+      setGeneratingInvite(null)
+    }
   }
 
   const handleRemove = async (userId: string) => {
@@ -154,6 +174,19 @@ export default function ProjectAuthPage() {
                     member
                   </span>
                   <button
+                    onClick={() => handleGenerateInvite(member)}
+                    disabled={generatingInvite === member.id}
+                    title="Generate invite link"
+                    className="p-1.5 rounded-lg transition-colors"
+                    style={{ color: 'var(--text-muted)' }}
+                    onMouseEnter={e => { e.currentTarget.style.color = '#22c55e' }}
+                    onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-muted)' }}
+                  >
+                    {generatingInvite === member.id
+                      ? <Loader2 size={14} className="animate-spin" />
+                      : <Plus size={14} />}
+                  </button>
+                  <button
                     onClick={() => handleMint(member)}
                     disabled={minting === member.id}
                     title="Generate user access token"
@@ -226,6 +259,38 @@ export default function ProjectAuthPage() {
             <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
               Use as the <code>Authorization: Bearer &lt;token&gt;</code> header. The token is scoped to this project — requests will route to its schema.
             </p>
+          </div>
+        )}
+      </Modal>
+
+      <Modal
+        isOpen={inviteToken !== null}
+        title="Invite link"
+        onClose={() => { setInviteToken(null); setInviteUser(null) }}
+      >
+        {inviteToken && inviteUser && (
+          <div className="space-y-4">
+            <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
+              Share this one-time link with <strong style={{ color: 'var(--text)' }}>{inviteUser.email}</strong> to let them set a password.
+              Expires {new Date(inviteToken.expires_at).toLocaleString()}.
+            </p>
+            <div className="flex items-center gap-2">
+              <code className="flex-1 px-3 py-2 rounded-xl text-xs font-mono break-all"
+                style={{ backgroundColor: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text)' }}>
+                {inviteToken.token}
+              </code>
+              <button
+                onClick={async () => {
+                  await navigator.clipboard.writeText(inviteToken.token)
+                  setInviteCopied(true)
+                  setTimeout(() => setInviteCopied(false), 2000)
+                }}
+                className="p-2 rounded-xl shrink-0"
+                style={{ border: '1px solid var(--border)', color: inviteCopied ? 'var(--accent)' : 'var(--text-muted)' }}
+              >
+                {inviteCopied ? <Check size={14} /> : <Copy size={14} />}
+              </button>
+            </div>
           </div>
         )}
       </Modal>

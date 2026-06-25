@@ -3,7 +3,7 @@
 import { usePathname, useRouter } from 'next/navigation'
 import {
   ArrowLeft, LayoutDashboard, Table2, Terminal, Database,
-  Shield, HardDrive, Zap, Radio, ScrollText, Plug, Settings, Link, Key,
+  Shield, HardDrive, Zap, Radio, ScrollText, Plug, Settings, Link, Key, ShieldCheck, GitBranch,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
@@ -18,6 +18,8 @@ const TABS: Tab[] = [
   { href: '/storage', label: 'Storage', icon: HardDrive },
   { href: '/functions', label: 'Edge Functions', icon: Zap },
   { href: '/realtime', label: 'Realtime', icon: Radio },
+  { href: '/rls', label: 'RLS Policies', icon: ShieldCheck },
+  { href: '/migrations', label: 'Migrations', icon: GitBranch },
   { href: '/logs', label: 'Logs', icon: ScrollText },
   { href: '/integrations', label: 'Integrations', icon: Plug },
   { href: '/connections', label: 'Connection Strings', icon: Link },

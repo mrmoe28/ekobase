@@ -400,3 +400,41 @@ export const createTenant = (name: string, ownerId: string) =>
   })
 export const deleteTenant = (tenantId: string) =>
   request<object>(`/tenants/${tenantId}`, { method: 'DELETE' })
+
+// Health
+export type ContainerHealth = { name: string; id: string; status: string; state: string; uptime_seconds: number; cpu_percent: number; memory_mb: number; memory_limit_mb: number }
+export type DatabaseHealth = { total_size: string; total_bytes: string; schemas: { schema: string; size: string; size_bytes: string }[]; active_connections: string; total_connections: string }
+export const getContainerHealth = () => request<ContainerHealth[]>('/health/containers')
+export const getDatabaseHealth = () => request<DatabaseHealth>('/health/database')
+export const syncSchemas = () => request<{ synced: string[]; total: number }>('/health/sync-schemas', { method: 'POST' })
+
+// Table editor
+export const insertTableRow = (schema: string, table: string, data: Record<string, unknown>) =>
+  request<Record<string, unknown>>(`/schema/${schema}/${table}/rows`, { method: 'POST', body: JSON.stringify({ data }) })
+
+// RLS Policies
+export type RlsPolicy = { policyname: string; permissive: string; roles: string[]; cmd: string; qual: string | null; with_check: string | null }
+export const listPolicies = (schema: string, table: string) => request<RlsPolicy[]>(`/schema/${schema}/${table}/policies`)
+export const createPolicy = (schema: string, table: string, body: { name: string; command: string; permissive?: boolean; roles?: string[]; using?: string; with_check?: string }) =>
+  request<RlsPolicy>(`/schema/${schema}/${table}/policies`, { method: 'POST', body: JSON.stringify(body) })
+export const deletePolicy = (schema: string, table: string, policyName: string) =>
+  request<object>(`/schema/${schema}/${table}/policies/${encodeURIComponent(policyName)}`, { method: 'DELETE' })
+
+// Migrations
+export type Migration = { id: string; project_id: string; name: string; sql: string; status: 'pending'|'applied'|'failed'|'rolled_back'; applied_at: string|null; error: string|null; created_at: string }
+export const listMigrations = (projectId: string) => request<Migration[]>(`/projects/${projectId}/migrations`)
+export const createMigration = (projectId: string, body: { name: string; sql: string }) =>
+  request<Migration>(`/projects/${projectId}/migrations`, { method: 'POST', body: JSON.stringify(body) })
+export const applyMigration = (projectId: string, migrationId: string) =>
+  request<Migration>(`/projects/${projectId}/migrations/${migrationId}/apply`, { method: 'POST' })
+export const rollbackMigration = (projectId: string, migrationId: string) =>
+  request<Migration>(`/projects/${projectId}/migrations/${migrationId}/rollback`, { method: 'POST' })
+export const deleteMigration = (projectId: string, migrationId: string) =>
+  request<object>(`/projects/${projectId}/migrations/${migrationId}`, { method: 'DELETE' })
+
+// Invite tokens
+export type InviteToken = { token: string; expires_at: string }
+export const createInviteToken = (userId: string) => request<InviteToken>(`/users/${userId}/invite-token`, { method: 'POST' })
+export const listResetTokens = (userId: string) => request<InviteToken[]>(`/users/${userId}/reset-tokens`)
+export const deleteResetToken = (userId: string, token: string) =>
+  request<object>(`/users/${userId}/reset-tokens/${encodeURIComponent(token)}`, { method: 'DELETE' })
